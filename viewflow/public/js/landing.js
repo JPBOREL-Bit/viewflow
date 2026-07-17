@@ -21,14 +21,15 @@ function renderModal(html, extraClass) {
     `<div class="modal-overlay" onclick="if(event.target===this) closeModal()"><div class="modal ${extraClass || ''}">${html}</div></div>`;
 }
 
-function passwordFieldHTML(id, label, required) {
+function passwordFieldHTML(id, label, required, minLen) {
   return `
     <div class="field">
       <label${required ? ' class="req"' : ''}>${label}</label>
       <div style="position:relative;">
-        <input id="${id}" type="password" ${required ? 'required' : ''} placeholder="••••••••" style="padding-right:44px;">
+        <input id="${id}" type="password" ${required ? 'required' : ''} ${minLen ? `minlength="${minLen}"` : ''} placeholder="••••••••" style="padding-right:44px;">
         <button type="button" onclick="togglePasswordVisibility('${id}', this)" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-faint); font-size:12px; padding:6px 8px;">Ver</button>
       </div>
+      ${minLen ? `<div class="mini-help">Mínimo ${minLen} caracteres.</div>` : ''}
     </div>`;
 }
 function togglePasswordVisibility(id, btn) {
@@ -50,7 +51,7 @@ function openRegister(role) {
           <div class="field"><label class="req">Gmail</label><input id="rc_email" type="email" required></div>
         </div>
         <div class="field"><label>Usuario de YouTube</label><input id="rc_yt" placeholder="@usuario"></div>
-        ${passwordFieldHTML('rc_pass', 'Contraseña', true)}
+        ${passwordFieldHTML('rc_pass', 'Contraseña', true, 8)}
         ${termsCheckboxHTML('rc_terms')}
         <div class="modal-foot">
           <button class="btn btn-primary" type="submit">Crear cuenta de creador</button>
@@ -65,7 +66,7 @@ function openRegister(role) {
         <div class="field"><label class="req">Usuario visible</label><input id="rv_visible" required></div>
         <div class="field"><label class="req">Gmail</label><input id="rv_email" type="email" required></div>
         <div class="field"><label>Teléfono (opcional)</label><input id="rv_phone"></div>
-        ${passwordFieldHTML('rv_pass', 'Contraseña', true)}
+        ${passwordFieldHTML('rv_pass', 'Contraseña', true, 8)}
         ${termsCheckboxHTML('rv_terms')}
         <div class="modal-foot">
           <button class="btn btn-primary" type="submit">Crear cuenta de viewer</button>
@@ -165,8 +166,8 @@ async function verifyForgotCode(email) {
     renderModal(`
       <div class="modal-head"><h2>Cambiá tu contraseña</h2><button class="modal-close" onclick="closeModal()">×</button></div>
       <form onsubmit="submitPasswordReset(event,'${email}','${code}')">
-        ${passwordFieldHTML('fp_new_pass', 'Nueva contraseña', true)}
-        ${passwordFieldHTML('fp_new_pass2', 'Confirmar contraseña', true)}
+        ${passwordFieldHTML('fp_new_pass', 'Nueva contraseña', true, 8)}
+        ${passwordFieldHTML('fp_new_pass2', 'Confirmar contraseña', true, 8)}
         <div class="modal-foot"><button class="btn btn-primary" type="submit">Guardar cambios</button></div>
       </form>`);
   } catch (err) { toast(err.message, true); }

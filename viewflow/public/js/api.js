@@ -14,6 +14,10 @@ async function api(method, path, body) {
   });
   let data = {};
   try { data = await res.json(); } catch (e) { /* respuesta vacía */ }
+  if (res.status === 503 && data.error === 'maintenance') {
+    showMaintenanceOverlay(data.message);
+    throw new Error(data.message || 'En mantenimiento.');
+  }
   if (!res.ok) {
     const err = new Error(data.error || 'Error de red');
     err.status = res.status;
@@ -52,6 +56,24 @@ function toast(msg, isErr) {
 
 function fmtArs(n) { return Number(n).toLocaleString('es-AR'); }
 
+function showMaintenanceOverlay(message) {
+  if (document.getElementById('maintenanceOverlay')) return;
+  const el = document.createElement('div');
+  el.id = 'maintenanceOverlay';
+  el.style.cssText = 'position:fixed; inset:0; z-index:9999; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;';
+  el.innerHTML = `
+    <div style="max-width:420px;">
+      <img src="/img/logo.png" alt="ViewFlow" style="width:80px; margin:0 auto 20px;">
+      <h2 style="margin-bottom:10px;">En mantenimiento</h2>
+      <p style="color:var(--text-dim); font-size:14.5px; line-height:1.6;">${message || 'ViewFlow se encuentra en mantenimiento. Volvé a intentarlo en un rato.'}</p>
+    </div>`;
+  document.body.appendChild(el);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+}
+
 async function requireSession(expectedRole) {
   try {
     const { account } = await Api.get('/auth/me');
@@ -59,6 +81,7 @@ async function requireSession(expectedRole) {
       window.location.href = '/';
       return null;
     }
+    applyTheme(account.theme);
     return account;
   } catch (e) {
     window.location.href = '/';

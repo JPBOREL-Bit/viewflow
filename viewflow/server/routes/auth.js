@@ -25,6 +25,7 @@ router.post('/register', (req, res) => {
   const { role, name, visibleUser, email, phone, ytUser, password, acceptedTerms } = req.body || {};
   if (!['creator', 'viewer'].includes(role)) return res.status(400).json({ error: 'Rol inválido.' });
   if (!name || !email || !password) return res.status(400).json({ error: 'Faltan campos obligatorios.' });
+  if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
   if (!acceptedTerms) return res.status(400).json({ error: 'Tenés que aceptar los Términos y la Política de Privacidad para registrarte.' });
   if (role === 'creator' && !visibleUser) return res.status(400).json({ error: 'Elegí un usuario visible.' });
   if (role === 'creator' && !phone) return res.status(400).json({ error: 'El teléfono es obligatorio para creadores.' });
@@ -120,7 +121,7 @@ router.post('/forgot/reset', (req, res) => {
   if (!acc || !acc.verifyCode || acc.verifyCode !== String(code || '').trim()) {
     return res.status(400).json({ error: 'El código de verificación no coincide.' });
   }
-  if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres.' });
+  if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
   acc.passwordHash = hashPassword(newPassword);
   acc.verifyCode = null;
   acc.verifyCodeAt = null;
@@ -146,7 +147,7 @@ router.post('/change-password', requireAuth(), (req, res) => {
   if (!acc.verifyCode || acc.verifyCode !== String(code || '').trim()) {
     return res.status(400).json({ error: 'El código de verificación no coincide.' });
   }
-  if (!newPassword || newPassword.length < 4) return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres.' });
+  if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
   acc.passwordHash = hashPassword(newPassword);
   acc.verifyCode = null;
   saveDB(db);

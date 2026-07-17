@@ -32,6 +32,20 @@ app.use(attachAccount);
 // Nunca cachear respuestas de la API (evita filtrar datos de sesión por el navegador/proxy).
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
+// Modo mantenimiento: si está activo, solo el admin puede seguir usando la
+// API. El resto recibe un 503 con aviso — el frontend interpreta esto y
+// muestra la pantalla de "en mantenimiento" en vez del panel.
+const MAINTENANCE_ALLOWLIST = ['/api/auth/login', '/api/auth/me', '/api/auth/logout', '/api/public-settings', '/api/version', '/api/health'];
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/admin')) return next();
+  if (MAINTENANCE_ALLOWLIST.includes(req.path)) return next();
+  const db = getDB();
+  if (db.settings.maintenanceMode && (!req.account || req.account.role !== 'admin')) {
+    return res.status(503).json({ error: 'maintenance', message: db.settings.maintenanceMessage || 'ViewFlow se encuentra en mantenimiento. Volvé a intentarlo en un rato.' });
+  }
+  next();
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/store', storeRoutes);

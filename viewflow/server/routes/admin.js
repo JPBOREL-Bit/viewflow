@@ -294,6 +294,60 @@ router.post('/reset', (req, res) => {
   res.json({ ok: true, message: 'Sistema reiniciado.' });
 });
 
+// ---- Exportar / importar todos los datos (respaldo completo) ----
+// Nunca incluye passwordHash — un backup no debe poder usarse para loguearse
+// como otra persona, aunque sí conserva todo lo demás para poder restaurar.
+router.get('/export', (req, res) => {
+  const db = getDB();
+  const safe = {
+    ...db,
+    accounts: db.accounts.map(({ passwordHash, verifyCode, ...rest }) => rest),
+    exportedAt: Date.now(),
+    exportedBy: req.account.email
+  };
+  res.setHeader('Content-Disposition', `attachment; filename="viewflow-backup-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.json(safe);
+});
+
+router.post('/import', (req, res) => {
+  const { password, data } = req.body || {};
+  const db = getDB();
+  const admin = db.accounts.find(a => a.id === req.account.id);
+  if (!checkPassword(password || '', admin.passwordHash)) return res.status(401).json({ error: 'Contraseña incorrecta.' });
+  if (!data || !Array.isArray(data.accounts)) return res.status(400).json({ error: 'El archivo no tiene el formato esperado.' });
+
+  // Los datos importados no traen passwordHash (se exportan sin él) — a las
+  // cuentas que no sean la del admin actual les asignamos una contraseña
+  // temporal aleatoria y tendrán que restablecerla con "Olvidé mi contraseña".
+  const crypto = require('crypto');
+  const { hashPassword } = require('../auth');
+  const importedAccounts = data.accounts.map(a => {
+    if (a.id === admin.id) return { ...a, passwordHash: admin.passwordHash };
+    return { ...a, passwordHash: hashPassword(crypto.randomBytes(12).toString('hex')), verifyCode: null };
+  });
+
+  const merged = {
+    ...defaultDB(),
+    ...data,
+    accounts: importedAccounts,
+    settings: { ...defaultDB().settings, ...(data.settings || {}) }
+  };
+  delete merged.exportedAt;
+  delete merged.exportedBy;
+  saveDB(merged);
+  res.json({ ok: true, message: `Datos importados: ${importedAccounts.length} cuentas. Las contraseñas de las demás cuentas quedaron reseteadas — van a necesitar pedir un código de recuperación.` });
+});
+
+// ---- Pausa / modo mantenimiento ----
+router.put('/maintenance', (req, res) => {
+  const { enabled, message } = req.body || {};
+  const db = getDB();
+  db.settings.maintenanceMode = !!enabled;
+  if (message !== undefined) db.settings.maintenanceMessage = String(message).slice(0, 300);
+  saveDB(db);
+  res.json({ ok: true, maintenanceMode: db.settings.maintenanceMode });
+});
+
 // ---- Donaciones (de creadores a viewers, o de un viewer a los demás viewers) ----
 router.get('/donations', (req, res) => {
   const db = getDB();

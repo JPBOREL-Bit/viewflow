@@ -35,7 +35,9 @@ function defaultDB() {
       usdRateUpdatedAt: 0,
       siteTitle: 'ViewFlow',
       siteTagline: 'Impulsá tu contenido, de verdad',
-      siteDesc: 'Conectamos creadores que buscan crecimiento real con viewers que ganan créditos por su tiempo.'
+      siteDesc: 'Conectamos creadores que buscan crecimiento real con viewers que ganan créditos por su tiempo.',
+      maintenanceMode: false,
+      maintenanceMessage: 'ViewFlow se encuentra en mantenimiento. Volvé a intentarlo en un rato.'
     }
   };
 }

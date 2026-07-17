@@ -316,14 +316,14 @@ async function renderPurchases(main) {
 }
 
 async function renderDonate(main) {
-  const { donations, viewerCount } = await Api.get('/store/donations/mine');
+  const { donations, recipientCount } = await Api.get('/donations/mine');
   main.innerHTML = `
     <div class="page-head"><div><h1>Donar a viewers</h1><div class="ps">Repartí créditos en partes iguales entre todos los viewers aprobados</div></div></div>
     <div class="section-card" style="max-width:520px;">
       <div class="stat-card" style="margin-bottom:18px;"><div class="sl">Tu saldo disponible</div><div class="sv gold">${fmtCr(ME.credits || 0)} cr</div></div>
       <form onsubmit="submitDonation(event)">
         <div class="field"><label class="req">Cantidad de créditos a donar</label><input id="dn_credits" type="number" min="1" step="1" required></div>
-        <div class="mini-help" style="margin-bottom:16px;">Se reparte entre los ${viewerCount} viewers aprobados actuales, una vez que el administrador lo confirme.</div>
+        <div class="mini-help" style="margin-bottom:16px;">Se reparte entre los ${recipientCount} viewers aprobados actuales, una vez que el administrador lo confirme.</div>
         <button class="btn btn-primary" type="submit">Enviar donación a revisión</button>
       </form>
     </div>
@@ -331,7 +331,7 @@ async function renderDonate(main) {
       <h3>Mis donaciones</h3>
       <table><thead><tr><th>Fecha</th><th>Créditos donados</th><th>Por viewer</th><th>Estado</th></tr></thead>
       <tbody>${donations.map(d => `<tr><td>${new Date(d.createdAt).toLocaleString()}</td><td class="mono">${d.credits}</td>
-        <td class="mono">${d.status === 'approved' ? d.perViewerAmount + ' cr' : '—'}</td>
+        <td class="mono">${d.status === 'approved' ? d.perRecipientAmount + ' cr' : '—'}</td>
         <td><span class="badge badge-${d.status === 'approved' ? 'approved' : d.status === 'rejected' ? 'rejected' : 'pending'}">${d.status}</span></td></tr>`).join('')}</tbody></table>
       ${donations.length === 0 ? '<div class="empty-state">Todavía no hiciste donaciones.</div>' : ''}
     </div>`;
@@ -339,7 +339,7 @@ async function renderDonate(main) {
 async function submitDonation(e) {
   e.preventDefault();
   try {
-    await Api.post('/store/donations', { credits: parseInt(document.getElementById('dn_credits').value) });
+    await Api.post('/donations/creator', { credits: parseInt(document.getElementById('dn_credits').value) });
     ME = await requireSession('creator');
     toast('Donación enviada. Queda retenida hasta que el administrador la apruebe.');
     renderPage();

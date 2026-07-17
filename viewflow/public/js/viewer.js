@@ -236,6 +236,13 @@ async function submitWithdraw(e) {
 function renderProfile(main) {
   main.innerHTML = `
     <div class="page-head"><div><h1>Perfil</h1></div></div>
+    <div class="section-card" style="max-width:520px; margin-bottom:20px;">
+      <h3 style="margin-bottom:14px;">Estilo de tu panel</h3>
+      <div style="display:flex; gap:10px;">
+        <button class="btn ${ME.theme !== 'dark' ? 'btn-primary' : 'btn-ghost'}" onclick="setTheme('light')">Claro</button>
+        <button class="btn ${ME.theme === 'dark' ? 'btn-primary' : 'btn-ghost'}" onclick="setTheme('dark')">Oscuro</button>
+      </div>
+    </div>
     <div class="section-card" style="max-width:520px;">
       <form onsubmit="saveProfile(event)">
         <div class="field"><label>Nombre</label><input id="pf_name" value="${ME.name}"></div>
@@ -246,6 +253,14 @@ function renderProfile(main) {
         <div style="display:flex; gap:10px;"><button class="btn btn-primary" type="submit">Guardar cambios</button><button class="btn btn-ghost" type="button" onclick="renderPage()">Cancelar cambios</button></div>
       </form>
     </div>`;
+}
+async function setTheme(theme) {
+  try {
+    await Api.put('/auth/theme', { theme });
+    ME.theme = theme;
+    applyTheme(theme);
+    renderPage();
+  } catch (err) { toast(err.message, true); }
 }
 async function saveProfile(e) {
   e.preventDefault();

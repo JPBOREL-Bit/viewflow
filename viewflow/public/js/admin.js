@@ -42,6 +42,15 @@ function renderModal(html) { document.getElementById('modalRoot').innerHTML = `<
 async function logout() { await Api.post('/auth/logout'); window.location.href = '/'; }
 function fmtCr(n) { return (Math.round(n * 10) / 10).toString(); }
 
+async function setAdminTheme(theme) {
+  try {
+    await Api.put('/auth/theme', { theme });
+    ME.theme = theme;
+    applyTheme(theme);
+    renderPage();
+  } catch (err) { toast(err.message, true); }
+}
+
 async function boot() {
   ME = await requireSession('admin');
   if (!ME) return;
@@ -56,7 +65,7 @@ async function renderPage() {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === currentPage));
   const main = document.getElementById('mainContent');
   main.innerHTML = '<div class="empty-state">Cargando...</div>';
-  const renderers = { overview: renderOverview, users: renderUsers, creators: renderCreatorsSection, viewers: renderViewersSection, campaigns: renderCampaigns, purchases: renderPurchases, withdrawals: renderWithdrawals, verify: renderVerify, messages: renderMessages, taxes: renderTaxes, settings: renderSettings };
+  const renderers = { overview: renderOverview, users: renderUsers, creators: renderCreatorsSection, viewers: renderViewersSection, campaigns: renderCampaigns, purchases: renderPurchases, withdrawals: renderWithdrawals, donations: renderDonations, verify: renderVerify, messages: renderMessages, taxes: renderTaxes, settings: renderSettings };
   try { await renderers[currentPage](main); } catch (e) { main.innerHTML = `<div class="empty-state">${e.message}</div>`; }
 }
 
@@ -249,6 +258,24 @@ async function renderWithdrawals(main) {
 async function approveWithdrawal(id) { await Api.put(`/admin/withdrawals/${id}/approve`); toast('Marcado como pagado.'); renderPage(); }
 async function rejectWithdrawal(id) { await Api.put(`/admin/withdrawals/${id}/reject`); toast('Rechazado y reembolsado.'); renderPage(); }
 
+async function renderDonations(main) {
+  const { donations } = await Api.get('/admin/donations');
+  main.innerHTML = `
+    <div class="page-head"><div><h1>Donaciones</h1><div class="ps">Créditos que un usuario donó para repartir entre otros</div></div></div>
+    <div class="section-card table-wrap">
+      <table><thead><tr><th>De</th><th>Rol</th><th>Créditos</th><th>Destinatarios</th><th>Por persona (aprox.)</th><th>Estado</th><th>Acciones</th></tr></thead>
+      <tbody>${donations.map(d => `<tr><td>${d.fromName}</td><td>${d.fromRole === 'creator' ? 'Creador' : 'Viewer'}</td>
+        <td class="mono">${d.credits}</td><td>${d.recipientCount}</td>
+        <td class="mono">${d.status === 'approved' ? d.perRecipientAmount : d.previewPerRecipient} cr</td>
+        <td><span class="badge badge-${d.status === 'approved' ? 'approved' : d.status === 'rejected' ? 'rejected' : 'pending'}">${d.status}</span></td>
+        <td>${d.status === 'pending' ? `<button class="btn btn-sm btn-teal" onclick="approveDonation('${d.id}')">Aprobar</button><button class="btn btn-sm btn-danger" onclick="rejectDonation('${d.id}')">Rechazar</button>` : ''}</td></tr>`).join('')}
+      </tbody></table>
+      ${donations.length === 0 ? '<div class="empty-state">No hay donaciones todavía.</div>' : ''}
+    </div>`;
+}
+async function approveDonation(id) { try { await Api.put(`/admin/donations/${id}/approve`); toast('Donación repartida entre los viewers.'); renderPage(); } catch (e) { toast(e.message, true); } }
+async function rejectDonation(id) { await Api.put(`/admin/donations/${id}/reject`); toast('Rechazada y reembolsada.'); renderPage(); }
+
 async function renderVerify(main) {
   const { requests } = await Api.get('/admin/verify-requests');
   main.innerHTML = `
@@ -313,6 +340,13 @@ async function renderSettings(main) {
   main.innerHTML = `
     <div class="page-head"><div><h1>Configuración</h1></div></div>
     <div class="section-card" style="max-width:560px; margin-bottom:20px;">
+      <h3 style="margin-bottom:14px;">Estilo de tu panel</h3>
+      <div style="display:flex; gap:10px;">
+        <button class="btn ${ME.theme !== 'dark' ? 'btn-primary' : 'btn-ghost'}" onclick="setAdminTheme('light')">Claro</button>
+        <button class="btn ${ME.theme === 'dark' ? 'btn-primary' : 'btn-ghost'}" onclick="setAdminTheme('dark')">Oscuro</button>
+      </div>
+    </div>
+    <div class="section-card" style="max-width:560px; margin-bottom:20px;">
       <h3>Economía</h3>
       <form onsubmit="saveSettings(event)">
         <div class="grid-2">
@@ -331,11 +365,62 @@ async function renderSettings(main) {
         <button class="btn btn-primary" type="submit">Guardar</button>
       </form>
     </div>
+    <div class="section-card" style="max-width:560px; margin-bottom:20px;">
+      <h3 style="margin-bottom:10px;">Respaldo de datos</h3>
+      <div class="mini-help" style="margin-bottom:14px;">Exportá una copia completa de usuarios, campañas, compras, retiros, donaciones y mensajes. El archivo NO incluye contraseñas.</div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-teal btn-sm" onclick="exportData()">Exportar datos</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('importFileInput').click()">Importar datos</button>
+        <input id="importFileInput" type="file" accept="application/json" style="display:none;" onchange="importDataFile(event)">
+      </div>
+    </div>
+    <div class="section-card" style="max-width:560px; margin-bottom:20px; ${s.maintenanceMode ? 'border-color:#e8b3a8;' : ''}">
+      <h3 style="margin-bottom:10px;">Pausa del sitio</h3>
+      <div class="mini-help" style="margin-bottom:14px;">Mientras esté en pausa, nadie salvo el admin puede usar la plataforma — ven un cartel de mantenimiento.</div>
+      <div class="field"><label>Mensaje para los usuarios</label><input id="st_maintmsg" value="${s.maintenanceMessage || ''}"></div>
+      <button class="btn ${s.maintenanceMode ? 'btn-danger' : 'btn-primary'} btn-sm" onclick="toggleMaintenance(${!s.maintenanceMode})">${s.maintenanceMode ? 'Reactivar el sitio' : 'Pausar el sitio'}</button>
+      ${s.maintenanceMode ? '<span class="badge badge-pending" style="margin-left:10px;">En mantenimiento ahora</span>' : ''}
+    </div>
     <div class="section-card" style="max-width:560px; border-color:#e8b3a8;">
       <h3 style="color:#a13323;">Zona de peligro</h3>
       <div class="mini-help" style="margin-bottom:14px;">Borra todas las cuentas de creadores y viewers, campañas, compras, retiros y mensajes. No se puede deshacer.</div>
       <button class="btn btn-danger" onclick="confirmReset()">Reiniciar sistema</button>
     </div>`;
+}
+async function exportData() {
+  try {
+    const res = await fetch('/api/admin/export', { credentials: 'include' });
+    if (!res.ok) throw new Error('No se pudo exportar.');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `viewflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast('Datos exportados.');
+  } catch (err) { toast(err.message, true); }
+}
+async function importDataFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const password = prompt('Ingresá tu contraseña de admin para confirmar la importación:');
+  if (!password) { e.target.value = ''; return; }
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const result = await Api.post('/admin/import', { password, data });
+    toast(result.message || 'Datos importados.');
+    renderPage();
+  } catch (err) { toast(err.message || 'El archivo no es válido.', true); }
+  e.target.value = '';
+}
+async function toggleMaintenance(enabled) {
+  try {
+    const message = document.getElementById('st_maintmsg').value;
+    await Api.put('/admin/maintenance', { enabled, message });
+    toast(enabled ? 'Sitio pausado.' : 'Sitio reactivado.');
+    renderPage();
+  } catch (err) { toast(err.message, true); }
 }
 async function saveSettings(e) {
   e.preventDefault();

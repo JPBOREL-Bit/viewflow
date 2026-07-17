@@ -14,6 +14,16 @@
   --shadow-lg: 0 28px 70px -24px rgba(40,30,8,0.30);
   --ease: cubic-bezier(.22,.9,.32,1);
 }
+[data-theme="dark"]{
+  --bg:#12141c; --panel:#1a1d29; --panel-2:#20232f; --panel-3:#262a38;
+  --border:#333749; --border-soft:#2a2e3d;
+  --text:#f0f1f5; --text-dim:#a8adc0; --text-faint:#6f7488;
+  --gold-dim:#1f3a5c; --teal-dim:#3a2159;
+  --red-dim:#4a2420;
+  --shadow-sm: 0 4px 14px -8px rgba(0,0,0,0.35);
+  --shadow: 0 16px 40px -18px rgba(0,0,0,0.45);
+  --shadow-lg: 0 28px 70px -24px rgba(0,0,0,0.55);
+}
 *{box-sizing:border-box; margin:0; padding:0;}
 html{scroll-behavior:smooth;}
 html,body{height:100%;}
@@ -160,7 +170,24 @@ tr:last-child td{ border-bottom:none; }
 .page-head h1{ font-size:25px; margin-bottom:6px; letter-spacing:-0.025em; }
 .page-head .ps{ color:var(--text-dim); font-size:13.5px; }
 .mini-help{ font-size:12px; color:var(--text-faint); margin-top:6px; line-height:1.5; }
-@media(max-width:900px){ .app-shell{ flex-direction:column; } .sidebar{ width:100%; height:auto; position:relative; flex-direction:row; overflow-x:auto; } .main{ padding:24px 20px; } }
+@media(max-width:900px){
+  .app-shell{ flex-direction:column; }
+  .sidebar{ width:100%; height:auto; position:relative; padding:14px 14px 10px; box-shadow:0 4px 18px -12px rgba(0,0,0,0.15); }
+  .sb-brand{ padding:0 0 12px; }
+  .sidebar nav{ display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; -webkit-overflow-scrolling:touch; }
+  .nav-item{ flex-shrink:0; width:auto; white-space:nowrap; margin-bottom:0; border-radius:20px; }
+  .nav-item.active::before{ display:none; }
+  .sb-foot{ margin-top:12px; padding-top:12px; }
+  .main{ padding:20px 16px; }
+  .page-head{ flex-direction:column; align-items:flex-start; }
+  .stat-grid{ grid-template-columns:repeat(2,1fr); gap:12px; }
+}
+@media(max-width:520px){
+  .stat-grid{ grid-template-columns:1fr 1fr; }
+  .modal{ padding:22px; border-radius:16px; }
+  .hero h1{ font-size:28px; }
+  th, td{ padding:10px 10px; font-size:12.5px; }
+}
 
 /* ---------- Bar charts (usados en dashboards) ---------- */
 .kpi-bar-row{ display:flex; align-items:center; gap:12px; margin-bottom:12px; }
