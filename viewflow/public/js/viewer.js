@@ -68,7 +68,8 @@ async function renderDashboard(main) {
       <div class="stat-card"><div class="sl">Créditos retirados</div><div class="sv">${fmtCr(creditsWithdrawn)}</div></div>
       <div class="stat-card"><div class="sl">Créditos donados</div><div class="sv">${fmtCr(creditsDonated)}</div></div>
       <div class="stat-card"><div class="sl">Créditos ganados</div><div class="sv teal">${fmtCr(creditsEarned)}</div></div>
-    </div>`;
+    </div>
+    <div class="ad-slot ad-slot-banner" data-ad-zone="viewer-dashboard">Espacio publicitario</div>`;
 }
 
 async function renderCampaigns(main) {

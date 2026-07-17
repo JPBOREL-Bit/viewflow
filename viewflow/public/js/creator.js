@@ -87,7 +87,8 @@ async function renderDashboard(main) {
       <div class="field"><label>Progreso (%)</label><input id="goalProgress" type="number" min="0" max="100" value="${goal.progress || 0}"></div>
       <button class="btn btn-primary btn-sm" onclick="savePersonalGoal()">Guardar meta</button>
       ${goal.text ? `<div class="progress-bar" style="margin-top:14px;"><div class="progress-fill" style="width:${goal.progress || 0}%"></div></div>` : ''}
-    </div>`;
+    </div>
+    <div class="ad-slot ad-slot-banner" data-ad-zone="creator-dashboard">Espacio publicitario</div>`;
 }
 
 function barChart(items) {
