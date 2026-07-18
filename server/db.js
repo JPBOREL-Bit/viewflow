@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const DB_PATH = path.join(__dirname, '..', 'data', 'db.json');
 
@@ -77,6 +78,21 @@ function saveDB(db) {
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
 }
 
+// Registra un evento en el log de actividad del admin. No guarda por sí solo:
+// hay que llamar a saveDB(db) después (así se puede combinar con otros
+// cambios en una sola escritura). type sirve para poder filtrar por color.
+function addLog(db, { type, message, accountName }) {
+  if (!Array.isArray(db.activityLog)) db.activityLog = [];
+  db.activityLog.unshift({
+    id: crypto.randomBytes(6).toString('hex'),
+    ts: Date.now(),
+    type: type || 'info',
+    message: String(message || '').slice(0, 400),
+    accountName: accountName || null
+  });
+  if (db.activityLog.length > 3000) db.activityLog.length = 3000;
+}
+
 function ensureAdminSeed() {
   const db = getDB();
   const email = (process.env.ADMIN_EMAIL || 'admin@viewflow.local').toLowerCase();
@@ -95,4 +111,4 @@ function ensureAdminSeed() {
   console.log(`[viewflow] Cuenta de admin creada: ${email} (definí ADMIN_EMAIL / ADMIN_PASSWORD en .env)`);
 }
 
-module.exports = { getDB, saveDB, defaultDB, ensureAdminSeed, DB_PATH };
+module.exports = { getDB, saveDB, defaultDB, ensureAdminSeed, addLog, DB_PATH };

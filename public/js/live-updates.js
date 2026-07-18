@@ -1,30 +1,22 @@
 // public/js/live-updates.js
-let lastSeenUpdate = 0;
+// En vez de avisar "hay contenido nuevo, reiniciá la página", la app se
+// actualiza sola en segundo plano: cada pocos segundos vuelve a pedir los
+// datos de la pantalla actual y los redibuja, sin recargar ni perder lo que
+// el usuario esté escribiendo en un formulario o modal abierto.
 
 async function initLiveUpdates() {
-  try { const v = await Api.get('/version'); lastSeenUpdate = v.updatedAt; } catch (e) {}
-  setInterval(checkForNewContent, 5000);
+  setInterval(silentRefreshTick, 6000);
 }
 
-async function syncLastSeenUpdate() {
-  try { const v = await Api.get('/version'); lastSeenUpdate = v.updatedAt; } catch (e) {}
-}
-
-async function checkForNewContent() {
-  try {
-    const v = await Api.get('/version');
-    if (v.updatedAt > lastSeenUpdate) showNewContentBanner();
-  } catch (e) {}
+function silentRefreshTick() {
+  // No interrumpir si hay un modal/formulario abierto (ej. participando de
+  // una campaña, completando un pago) — ahí forzar un refresh perdería lo
+  // que el usuario está haciendo.
+  const modalOpen = document.getElementById('modalRoot') && document.getElementById('modalRoot').children.length > 0;
+  if (!modalOpen && typeof window.__vfSilentRefresh === 'function') {
+    window.__vfSilentRefresh();
+  }
   if (typeof refreshSupportBadgeOnly === 'function') refreshSupportBadgeOnly();
-}
-
-function showNewContentBanner() {
-  if (document.getElementById('newContentBanner')) return;
-  const el = document.createElement('div');
-  el.id = 'newContentBanner';
-  el.className = 'new-content-banner';
-  el.innerHTML = `<span>Contenido nuevo</span><button onclick="location.reload()">Reiniciar la página</button>`;
-  document.body.appendChild(el);
 }
 
 initLiveUpdates();

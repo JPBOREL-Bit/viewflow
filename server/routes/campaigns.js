@@ -1,7 +1,7 @@
 // server/routes/campaigns.js
 const express = require('express');
 const router = express.Router();
-const { getDB, saveDB } = require('../db');
+const { getDB, saveDB, addLog } = require('../db');
 const { requireAuth, checkPassword } = require('../auth');
 const { uid } = require('../util');
 const { campaignCost, viewerRewardFor } = require('../pricing');
@@ -68,6 +68,7 @@ router.post('/', requireAuth('creator'), (req, res) => {
   };
   db.campaigns.push(camp);
   debitAccount(acc, total, 'Campaña creada: ' + camp.title);
+  addLog(db, { type: 'campaign', message: `${acc.visibleUser} creó la campaña "${camp.title}" (${v} viewers, ${s}s, ${total} créditos)`, accountName: acc.visibleUser });
   saveDB(db);
   res.json({ ok: true, campaign: camp });
 });
@@ -111,6 +112,7 @@ router.delete('/:id', requireAuth('creator'), (req, res) => {
   if (!camp) return res.status(404).json({ error: 'Campaña no encontrada.' });
   db.campaigns = db.campaigns.filter(c => c.id !== camp.id);
   db.participations = db.participations.filter(p => p.campaignId !== camp.id);
+  addLog(db, { type: 'campaign', message: `${acc.visibleUser} eliminó la campaña "${camp.title}" (no se reembolsaron los créditos)`, accountName: acc.visibleUser });
   saveDB(db);
   res.json({ ok: true });
 });
@@ -130,11 +132,28 @@ router.post('/:id/participate/start', requireAuth('viewer'), (req, res) => {
   const part = {
     id: uid('part'), campaignId: camp.id, viewerId: req.account.id,
     status: 'active', startedAt: Date.now(), deadline: Date.now() + 60 * 60 * 1000,
-    seconds: camp.seconds, reward: camp.rewardPerView
+    seconds: camp.seconds, effectiveSeconds: camp.seconds, videoDuration: null, reward: camp.rewardPerView
   };
   db.participations.push(part);
   saveDB(db);
   res.json({ ok: true, participation: part, videoId: extractYouTubeId(camp.url) });
+});
+
+// ---- Participar: informar la duración real del video (si es más corto que
+// lo pedido, el viewer solo tiene que mirarlo entero, pero cobra igual el
+// tiempo completo que fijó el creador — lo paga el creador de todas formas) ----
+router.post('/:id/participate/duration', requireAuth('viewer'), (req, res) => {
+  const { participationId, duration } = req.body || {};
+  const db = getDB();
+  const part = db.participations.find(p => p.id === participationId && p.viewerId === req.account.id && p.status === 'active');
+  if (!part) return res.status(404).json({ error: 'Participación no encontrada.' });
+  const d = Math.floor(Number(duration));
+  if (d > 0) {
+    part.videoDuration = d;
+    part.effectiveSeconds = Math.min(part.seconds, d);
+    saveDB(db);
+  }
+  res.json({ ok: true, effectiveSeconds: part.effectiveSeconds });
 });
 
 // ---- Participar: completar (viewer) ----
@@ -149,7 +168,8 @@ router.post('/:id/participate/complete', requireAuth('viewer'), (req, res) => {
     saveDB(db);
     return res.status(400).json({ error: 'Se agotó el tiempo máximo de 1 hora.' });
   }
-  const elapsedOk = (Date.now() - part.startedAt) >= (camp.seconds * 1000) - 1500; // pequeño margen de red
+  const requiredMs = (part.effectiveSeconds || camp.seconds) * 1000;
+  const elapsedOk = (Date.now() - part.startedAt) >= requiredMs - 1500; // pequeño margen de red
   if (!elapsedOk) return res.status(400).json({ error: 'Todavía no se cumplió el tiempo requerido.' });
 
   part.status = 'completed';

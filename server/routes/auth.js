@@ -1,7 +1,7 @@
 // server/routes/auth.js
 const express = require('express');
 const router = express.Router();
-const { getDB, saveDB } = require('../db');
+const { getDB, saveDB, addLog } = require('../db');
 const { hashPassword, checkPassword, setSessionCookie, clearSessionCookie, createSession, publicAccount, requireAuth } = require('../auth');
 const { uid, genVerifyCode } = require('../util');
 
@@ -62,6 +62,7 @@ router.post('/register', (req, res) => {
     createdAt: Date.now()
   };
   db.accounts.push(acc);
+  addLog(db, { type: 'user', message: `Nueva cuenta registrada: ${acc.visibleUser} (${role === 'creator' ? 'creador' : 'viewer'}, ${acc.email}) — pendiente de aprobación`, accountName: acc.visibleUser });
   saveDB(db);
   res.json({ ok: true, message: 'Cuenta creada. Queda pendiente de aprobación del administrador.', assignedUsername: role === 'viewer' ? finalVisibleUser : undefined });
 });
@@ -181,11 +182,7 @@ router.put('/profile', requireAuth(), (req, res) => {
   const changed = Object.keys(before).filter(k => before[k] !== acc[k]);
   if (changed.length) {
     const summary = changed.map(k => `${k}: "${before[k]}" → "${acc[k]}"`).join(', ');
-    if (!Array.isArray(db.activityLog)) db.activityLog = [];
-    db.activityLog.push({
-      id: uid('log'), accountId: acc.id, ts: Date.now(),
-      text: `${acc.visibleUser || acc.name} (${acc.role}) actualizó su perfil — ${summary}`
-    });
+    addLog(db, { type: 'user', message: `${acc.visibleUser || acc.name} (${acc.role}) actualizó su perfil — ${summary}`, accountName: acc.visibleUser });
   }
   saveDB(db);
   res.json({ ok: true, account: publicAccount(acc) });

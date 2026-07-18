@@ -93,14 +93,18 @@ function formatHMS(total) {
   return m ? `${m}:${String(s).padStart(2, '0')} min` : `${s}s`;
 }
 
-function getYoutubeEmbed(videoId, locked) {
-  const lockedParams = locked ? '&controls=0&disablekb=1&fs=0&iv_load_policy=3' : '';
-  return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}${lockedParams}`;
-}
-function ytCommand(iframeId, func) {
-  const iframe = document.getElementById(iframeId);
-  if (!iframe || !iframe.contentWindow) return;
-  try { iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args: [] }), '*'); } catch (e) {}
+let ytPlayer = null;
+let ytApiReadyPromise = null;
+function loadYouTubeApi() {
+  if (ytApiReadyPromise) return ytApiReadyPromise;
+  ytApiReadyPromise = new Promise((resolve) => {
+    if (window.YT && window.YT.Player) return resolve();
+    window.onYouTubeIframeAPIReady = resolve;
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+  });
+  return ytApiReadyPromise;
 }
 
 async function openParticipate(campId) {
@@ -109,32 +113,52 @@ async function openParticipate(campId) {
   catch (err) { toast(err.message, true); return; }
 
   activeParticipation = { id: start.participation.id, campaignId: campId, seconds: start.participation.seconds, reward: start.participation.reward, videoId: start.videoId };
-  let remaining = activeParticipation.seconds;
-  const embed = getYoutubeEmbed(activeParticipation.videoId, true);
+  let total = activeParticipation.seconds;
+  let remaining = total;
 
   renderModal(`
     <div class="modal-head"><h2>Mirando video</h2><button class="modal-close" onclick="tryCloseParticipation()">×</button></div>
-    <div class="player-frame"><iframe id="pt_yt_iframe" src="${embed}" style="width:100%;height:100%;border:0;" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe><div class="player-lock-overlay"></div></div>
+    <div class="player-frame"><div id="pt_yt_player" style="width:100%; height:100%;"></div><div class="player-lock-overlay"></div></div>
     <div class="timer-ring-text mono" id="pt_remaining">${formatHMS(remaining)}</div>
-    <div class="timer-label">Quedate viendo sin salir de esta pestaña para ganar <b style="color:var(--gold)">${fmtCr(activeParticipation.reward)} créditos</b></div>
+    <div class="timer-label" id="pt_label">Quedate viendo sin salir de esta pestaña para ganar <b style="color:var(--gold)">${fmtCr(activeParticipation.reward)} créditos</b></div>
     <div class="progress-bar"><div class="progress-fill" id="pt_progress" style="width:0%"></div></div>
     <div class="mini-help" id="pt_tabwarn" style="text-align:center; color:var(--red);"></div>
     <div class="modal-foot"><button class="btn btn-danger" id="pt_stop_btn" onclick="stopParticipation()">Dejar de participar</button></div>
   `, 'modal-video');
 
+  await loadYouTubeApi();
+  ytPlayer = new YT.Player('pt_yt_player', {
+    videoId: activeParticipation.videoId,
+    playerVars: { autoplay: 1, rel: 0, modestbranding: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
+    events: {
+      onReady: async (e) => {
+        e.target.playVideo();
+        const dur = Math.floor(e.target.getDuration() || 0);
+        if (dur > 0 && dur < total) {
+          try {
+            const res = await Api.post(`/campaigns/${campId}/participate/duration`, { participationId: activeParticipation.id, duration: dur });
+            total = res.effectiveSeconds;
+            remaining = Math.min(remaining, total);
+            const labelEl = document.getElementById('pt_label');
+            if (labelEl) labelEl.innerHTML = `El video dura menos de lo pedido — mirándolo completo ya ganás <b style="color:var(--gold)">${fmtCr(activeParticipation.reward)} créditos</b> (el creador paga el tiempo completo igual).`;
+          } catch (err) { /* si falla, seguimos con el tiempo original */ }
+        }
+      }
+    }
+  });
+
   document.removeEventListener('visibilitychange', onVisibilityChange);
   document.addEventListener('visibilitychange', onVisibilityChange);
 
-  const total = activeParticipation.seconds;
   const grace = Math.min(5, Math.floor(total * 0.2));
   if (participationTimer) clearInterval(participationTimer);
   participationTimer = setInterval(async () => {
     if (!activeParticipation) return;
     if (document.hidden) return;
-    remaining--;
+    remaining = Math.max(0, Math.min(remaining - 1, total));
     const el = document.getElementById('pt_remaining');
     const pg = document.getElementById('pt_progress');
-    if (el) el.textContent = formatHMS(Math.max(0, remaining));
+    if (el) el.textContent = formatHMS(remaining);
     if (pg) pg.style.width = (((total - remaining) / total) * 100) + '%';
     if (remaining <= total - grace) {
       const btn = document.getElementById('pt_stop_btn');
@@ -150,7 +174,9 @@ async function openParticipate(campId) {
 function onVisibilityChange() {
   const warnEl = document.getElementById('pt_tabwarn');
   if (warnEl) warnEl.textContent = document.hidden ? 'El video está pausado: volvé a esta pestaña.' : '';
-  ytCommand('pt_yt_iframe', document.hidden ? 'pauseVideo' : 'playVideo');
+  if (ytPlayer && ytPlayer.pauseVideo) {
+    try { document.hidden ? ytPlayer.pauseVideo() : ytPlayer.playVideo(); } catch (e) {}
+  }
 }
 
 async function completeParticipation() {
@@ -166,6 +192,7 @@ async function completeParticipation() {
     closeModal();
     activeParticipation = null;
   }
+  if (ytPlayer && ytPlayer.destroy) { try { ytPlayer.destroy(); } catch (e) {} ytPlayer = null; }
   document.removeEventListener('visibilitychange', onVisibilityChange);
   renderPage();
 }
@@ -183,6 +210,7 @@ async function abandonParticipation() {
   if (!activeParticipation) { closeModal(); return; }
   clearInterval(participationTimer);
   try { await Api.post(`/campaigns/${activeParticipation.campaignId}/participate/abandon`, { participationId: activeParticipation.id }); } catch (e) {}
+  if (ytPlayer && ytPlayer.destroy) { try { ytPlayer.destroy(); } catch (e) {} ytPlayer = null; }
   document.removeEventListener('visibilitychange', onVisibilityChange);
   activeParticipation = null;
   closeModal();
@@ -330,3 +358,6 @@ async function renderHistory(main) {
 }
 
 boot();
+
+const VIEWER_SAFE_REFRESH_PAGES = ['dashboard', 'history'];
+window.__vfSilentRefresh = () => { if (ME && VIEWER_SAFE_REFRESH_PAGES.includes(currentPage)) renderPage(); };

@@ -24,11 +24,6 @@ async function api(method, path, body) {
     err.data = data;
     throw err;
   }
-  // Si esta llamada modificó datos, esta pestaña ya "sabe" del cambio —
-  // así el aviso de "Contenido nuevo" nunca se dispara por tus propias acciones.
-  if (method !== 'GET' && typeof lastSeenUpdate !== 'undefined') {
-    setTimeout(() => { if (typeof syncLastSeenUpdate === 'function') syncLastSeenUpdate(); }, 300);
-  }
   return data;
 }
 
@@ -62,18 +57,12 @@ function showMaintenanceOverlay(message) {
   el.id = 'maintenanceOverlay';
   el.style.cssText = 'position:fixed; inset:0; z-index:9999; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:24px; text-align:center;';
   el.innerHTML = `
-    <div style="max-width:380px; width:100%;">
-      <img src="/img/logo.png" alt="ViewFlow" style="width:80px; margin:0 auto 20px;">
-      <h2 style="margin-bottom:10px;">En mantenimiento</h2>
-      <p style="color:var(--text-dim); font-size:14.5px; line-height:1.6; margin-bottom:22px;">${message || 'ViewFlow se encuentra en mantenimiento. Volvé a intentarlo en un rato.'}</p>
-      <form id="maintAdminForm" style="text-align:left; background:var(--panel); border:1px solid var(--border-soft); border-radius:14px; padding:20px;" onsubmit="submitMaintenanceLogin(event)">
-        <div style="font-size:12.5px; font-weight:600; color:var(--text-faint); text-transform:uppercase; letter-spacing:.04em; margin-bottom:12px;">¿Sos el administrador?</div>
-        <div class="field"><label>Gmail</label><input id="maint_email" type="email" required></div>
-        <div class="field" style="margin-bottom:14px;"><label>Contraseña</label><input id="maint_pass" type="password" required></div>
-        <button class="btn btn-primary btn-sm" type="submit" style="width:100%;">Iniciar sesión como admin</button>
-        <div id="maintLoginError" style="color:var(--red); font-size:12.5px; margin-top:8px;"></div>
-      </form>
-    </div>`;
+    <form id="maintAdminForm" style="max-width:340px; width:100%; text-align:left;" onsubmit="submitMaintenanceLogin(event)">
+      <div class="field"><label>Gmail</label><input id="maint_email" type="email" required></div>
+      <div class="field" style="margin-bottom:14px;"><label>Contraseña</label><input id="maint_pass" type="password" required></div>
+      <button class="btn btn-primary" type="submit" style="width:100%;">Iniciar sesión</button>
+      <div id="maintLoginError" style="color:var(--red); font-size:12.5px; margin-top:8px; text-align:center;"></div>
+    </form>`;
   document.body.appendChild(el);
 }
 

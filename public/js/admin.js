@@ -15,7 +15,8 @@ const NAV = [
   { id: 'messages', label: 'Mensajes' },
   { id: 'taxes', label: 'Impuestos' },
   { id: 'settings', label: 'Configuración' },
-  { id: 'devices', label: 'Dispositivos' }
+  { id: 'devices', label: 'Dispositivos' },
+  { id: 'logs', label: 'Logs' }
 ];
 function buildNav(counts) {
   counts = counts || {};
@@ -66,7 +67,7 @@ async function renderPage() {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === currentPage));
   const main = document.getElementById('mainContent');
   main.innerHTML = '<div class="empty-state">Cargando...</div>';
-  const renderers = { overview: renderOverview, users: renderUsers, creators: renderCreatorsSection, viewers: renderViewersSection, campaigns: renderCampaigns, purchases: renderPurchases, withdrawals: renderWithdrawals, donations: renderDonations, verify: renderVerify, messages: renderMessages, taxes: renderTaxes, settings: renderSettings, devices: renderDevices };
+  const renderers = { overview: renderOverview, users: renderUsers, creators: renderCreatorsSection, viewers: renderViewersSection, campaigns: renderCampaigns, purchases: renderPurchases, withdrawals: renderWithdrawals, donations: renderDonations, verify: renderVerify, messages: renderMessages, taxes: renderTaxes, settings: renderSettings, devices: renderDevices, logs: renderLogs };
   try { await renderers[currentPage](main); } catch (e) { main.innerHTML = `<div class="empty-state">${e.message}</div>`; }
 }
 
@@ -258,6 +259,39 @@ async function renderWithdrawals(main) {
 }
 async function approveWithdrawal(id) { await Api.put(`/admin/withdrawals/${id}/approve`); toast('Marcado como pagado.'); renderPage(); }
 async function rejectWithdrawal(id) { await Api.put(`/admin/withdrawals/${id}/reject`); toast('Rechazado y reembolsado.'); renderPage(); }
+
+const LOG_TYPE_LABEL = { campaign: 'Campaña', purchase: 'Compra', withdrawal: 'Retiro', donation: 'Donación', user: 'Usuario', system: 'Sistema', info: 'Otro' };
+async function renderLogs(main, query, type) {
+  query = query || '';
+  type = type || 'all';
+  const params = new URLSearchParams({ limit: '300' });
+  if (query) params.set('q', query);
+  if (type !== 'all') params.set('type', type);
+  const { logs, total } = await Api.get(`/admin/logs?${params.toString()}`);
+  main.innerHTML = `
+    <div class="page-head"><div><h1>Logs</h1><div class="ps">Todo lo que pasa en ViewFlow, de más reciente a más viejo (${total} en total)</div></div></div>
+    <div class="section-card" style="margin-bottom:16px;">
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <input id="logSearch" placeholder="Buscar por texto o usuario..." value="${query}" style="flex:1; min-width:220px;" onkeydown="if(event.key==='Enter') searchLogs()">
+        <select id="logType" style="max-width:200px;" onchange="searchLogs()">
+          ${Object.entries({ all: 'Todos', ...LOG_TYPE_LABEL }).map(([k, v]) => `<option value="${k}" ${type === k ? 'selected' : ''}>${v}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="searchLogs()">Buscar</button>
+      </div>
+    </div>
+    <div class="section-card table-wrap">
+      <table><thead><tr><th>Fecha</th><th>Tipo</th><th>Usuario</th><th>Detalle</th></tr></thead>
+      <tbody>${logs.map(l => `<tr><td class="mono" style="white-space:nowrap;">${new Date(l.ts).toLocaleString()}</td>
+        <td><span class="badge badge-pending">${LOG_TYPE_LABEL[l.type] || l.type}</span></td>
+        <td>${l.accountName || '—'}</td><td>${l.message}</td></tr>`).join('')}</tbody></table>
+      ${logs.length === 0 ? '<div class="empty-state">No hay eventos que coincidan con la búsqueda.</div>' : ''}
+    </div>`;
+}
+function searchLogs() {
+  const q = document.getElementById('logSearch').value;
+  const type = document.getElementById('logType').value;
+  renderLogs(document.getElementById('mainContent'), q, type);
+}
 
 async function renderDonations(main) {
   const { donations } = await Api.get('/admin/donations');
@@ -451,3 +485,6 @@ async function submitReset(e) {
 }
 
 boot();
+
+const ADMIN_SAFE_REFRESH_PAGES = ['overview', 'users', 'creators', 'viewers', 'campaigns', 'purchases', 'withdrawals', 'donations', 'verify', 'taxes', 'logs'];
+window.__vfSilentRefresh = () => { if (ME && ADMIN_SAFE_REFRESH_PAGES.includes(currentPage)) renderPage(); };

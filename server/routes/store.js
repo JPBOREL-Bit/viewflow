@@ -1,7 +1,7 @@
 // server/routes/store.js
 const express = require('express');
 const router = express.Router();
-const { getDB, saveDB } = require('../db');
+const { getDB, saveDB, addLog } = require('../db');
 const { requireAuth } = require('../auth');
 const { uid } = require('../util');
 const { purchaseQuote } = require('../pricing');
@@ -59,6 +59,7 @@ router.post('/purchases', requireAuth('creator'), (req, res) => {
     status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + ONE_HOUR
   };
   db.purchases.push(purchase);
+  addLog(db, { type: 'purchase', message: `${req.account.visibleUser} pidió comprar ${c} créditos (${chosenMethod})`, accountName: req.account.visibleUser });
   saveDB(db);
   const note = chosenMethod === 'Transferencia bancaria'
     ? `Mandá el comprobante de la transferencia por Gmail a ${db.settings.paymentContactEmail} para que se apruebe más rápido.`

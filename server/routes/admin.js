@@ -1,7 +1,7 @@
 // server/routes/admin.js
 const express = require('express');
 const router = express.Router();
-const { getDB, saveDB, defaultDB } = require('../db');
+const { getDB, saveDB, defaultDB, addLog } = require('../db');
 const { requireAuth, publicAccount, checkPassword } = require('../auth');
 const { uid } = require('../util');
 const { purgeExpired } = require('./store');
@@ -73,6 +73,7 @@ router.put('/users/:id/status', (req, res) => {
   const acc = db.accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'Cuenta no encontrada.' });
   acc.status = status;
+  addLog(db, { type: 'user', message: `Cuenta ${acc.visibleUser} pasó a estado: ${status}`, accountName: acc.visibleUser });
   saveDB(db);
   res.json({ ok: true });
 });
@@ -127,6 +128,7 @@ router.put('/purchases/:id/approve', (req, res) => {
   creditAccount(creator, p.credits, 'Compra de créditos aprobada');
   if (admin && p.taxCredits) creditAccount(admin, p.taxCredits, `Impuesto de compra (${db.settings.purchaseTaxPct}%)`);
   p.status = 'approved';
+  addLog(db, { type: 'purchase', message: `Compra aprobada: ${creator ? creator.visibleUser : p.creatorId} — ${p.credits} créditos ($${p.usd})`, accountName: creator ? creator.visibleUser : null });
   saveDB(db);
   res.json({ ok: true });
 });
@@ -135,6 +137,8 @@ router.put('/purchases/:id/reject', (req, res) => {
   const p = db.purchases.find(x => x.id === req.params.id);
   if (!p) return res.status(404).json({ error: 'Solicitud no encontrada.' });
   p.status = 'rejected';
+  const creator = db.accounts.find(a => a.id === p.creatorId);
+  addLog(db, { type: 'purchase', message: `Compra rechazada: ${creator ? creator.visibleUser : p.creatorId} — ${p.credits} créditos`, accountName: creator ? creator.visibleUser : null });
   saveDB(db);
   res.json({ ok: true });
 });
@@ -153,6 +157,8 @@ router.put('/withdrawals/:id/approve', (req, res) => {
   const taxCredits = Math.round((w.credits - w.netCredits) * 100) / 100;
   if (admin && taxCredits) creditAccount(admin, taxCredits, `Impuesto de retiro (${db.settings.withdrawTaxPct}%)`);
   w.status = 'paid';
+  const viewerPaid = db.accounts.find(a => a.id === w.viewerId);
+  addLog(db, { type: 'withdrawal', message: `Retiro pagado: ${viewerPaid ? viewerPaid.visibleUser : w.viewerId} — ${w.netCredits} créditos ($${w.usd})`, accountName: viewerPaid ? viewerPaid.visibleUser : null });
   saveDB(db);
   res.json({ ok: true });
 });
@@ -163,6 +169,7 @@ router.put('/withdrawals/:id/reject', (req, res) => {
   const viewer = db.accounts.find(a => a.id === w.viewerId);
   creditAccount(viewer, w.credits, 'Retiro rechazado — reembolso');
   w.status = 'rejected';
+  addLog(db, { type: 'withdrawal', message: `Retiro rechazado y reembolsado: ${viewer ? viewer.visibleUser : w.viewerId} — ${w.credits} créditos`, accountName: viewer ? viewer.visibleUser : null });
   saveDB(db);
   res.json({ ok: true });
 });
@@ -244,6 +251,20 @@ router.post('/messages/:accountId/reply', (req, res) => {
 });
 
 // ---- Impuestos ----
+// ---- Logs de actividad (todo lo que pasa en la app) ----
+router.get('/logs', (req, res) => {
+  const db = getDB();
+  const { q, type, limit } = req.query;
+  let list = Array.isArray(db.activityLog) ? db.activityLog : [];
+  if (type && type !== 'all') list = list.filter(l => l.type === type);
+  if (q && q.trim()) {
+    const term = q.trim().toLowerCase();
+    list = list.filter(l => (l.message || '').toLowerCase().includes(term) || (l.accountName || '').toLowerCase().includes(term));
+  }
+  const max = Math.min(parseInt(limit, 10) || 200, 1000);
+  res.json({ logs: list.slice(0, max), total: list.length });
+});
+
 router.get('/taxes', (req, res) => {
   const db = getDB();
   const admin = db.accounts.find(a => a.role === 'admin');
@@ -290,6 +311,7 @@ router.post('/reset', (req, res) => {
   const fresh = defaultDB();
   fresh.accounts = [{ ...admin, credits: 0, ledger: [] }];
   fresh.settings = db.settings; // la configuración del sitio no se borra, solo los datos operativos
+  addLog(fresh, { type: 'system', message: `${admin.visibleUser} reinició el sistema — se borraron cuentas, campañas, compras, retiros y mensajes`, accountName: admin.visibleUser });
   saveDB(fresh);
   res.json({ ok: true, message: 'Sistema reiniciado.' });
 });
@@ -334,6 +356,7 @@ router.post('/import', (req, res) => {
   };
   delete merged.exportedAt;
   delete merged.exportedBy;
+  addLog(merged, { type: 'system', message: `${admin.visibleUser} importó un respaldo — ${importedAccounts.length} cuentas restauradas`, accountName: admin.visibleUser });
   saveDB(merged);
   res.json({ ok: true, message: `Datos importados: ${importedAccounts.length} cuentas. Las contraseñas de las demás cuentas quedaron reseteadas — van a necesitar pedir un código de recuperación.` });
 });
@@ -344,6 +367,7 @@ router.put('/maintenance', (req, res) => {
   const db = getDB();
   db.settings.maintenanceMode = !!enabled;
   if (message !== undefined) db.settings.maintenanceMessage = String(message).slice(0, 300);
+  addLog(db, { type: 'system', message: enabled ? `${req.account.visibleUser} puso el sitio en mantenimiento` : `${req.account.visibleUser} reactivó el sitio`, accountName: req.account.visibleUser });
   saveDB(db);
   res.json({ ok: true, maintenanceMode: db.settings.maintenanceMode });
 });
@@ -385,6 +409,7 @@ router.put('/donations/:id/approve', (req, res) => {
   });
   d.status = 'approved';
   d.perRecipientAmount = perRecipient;
+  addLog(db, { type: 'donation', message: `Donación aprobada: ${from ? from.visibleUser : fromId} repartió ${d.credits} créditos entre ${recipients.length} viewers`, accountName: from ? from.visibleUser : null });
   saveDB(db);
   res.json({ ok: true });
 });

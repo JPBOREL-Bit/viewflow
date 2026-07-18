@@ -394,3 +394,6 @@ async function saveProfile(e) {
 }
 
 boot();
+
+const CREATOR_SAFE_REFRESH_PAGES = ['dashboard', 'mine', 'finished', 'purchases'];
+window.__vfSilentRefresh = () => { if (ME && CREATOR_SAFE_REFRESH_PAGES.includes(currentPage)) renderPage(); };

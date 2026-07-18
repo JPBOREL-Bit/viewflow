@@ -4,7 +4,7 @@
 // TODOS los demás viewers aprobados (sin contarse a sí mismo).
 const express = require('express');
 const router = express.Router();
-const { getDB, saveDB } = require('../db');
+const { getDB, saveDB, addLog } = require('../db');
 const { requireAuth } = require('../auth');
 const { uid } = require('../util');
 
@@ -25,6 +25,7 @@ router.post('/creator', requireAuth('creator'), (req, res) => {
   debitAccount(acc, amount, 'Donación enviada a revisión');
   const donation = { id: uid('don'), fromId: acc.id, fromRole: 'creator', credits: amount, status: 'pending', perRecipientAmount: 0, createdAt: Date.now() };
   db.donations.push(donation);
+  addLog(db, { type: 'donation', message: `${acc.visibleUser} pidió donar ${amount} créditos a los viewers`, accountName: acc.visibleUser });
   saveDB(db);
   res.json({ ok: true, donation });
 });
@@ -41,6 +42,7 @@ router.post('/viewer', requireAuth('viewer'), (req, res) => {
   debitAccount(acc, amount, 'Donación enviada a revisión');
   const donation = { id: uid('don'), fromId: acc.id, fromRole: 'viewer', credits: amount, status: 'pending', perRecipientAmount: 0, createdAt: Date.now() };
   db.donations.push(donation);
+  addLog(db, { type: 'donation', message: `${acc.visibleUser} pidió donar ${amount} créditos a otros viewers`, accountName: acc.visibleUser });
   saveDB(db);
   res.json({ ok: true, donation });
 });

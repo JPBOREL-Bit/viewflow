@@ -1,7 +1,7 @@
 // server/routes/withdrawals.js
 const express = require('express');
 const router = express.Router();
-const { getDB, saveDB } = require('../db');
+const { getDB, saveDB, addLog } = require('../db');
 const { requireAuth } = require('../auth');
 const { uid } = require('../util');
 const { withdrawQuote } = require('../pricing');
@@ -49,6 +49,7 @@ router.post('/', requireAuth('viewer'), (req, res) => {
     status: 'pending', createdAt: Date.now()
   };
   db.withdrawals.push(wd);
+  addLog(db, { type: 'withdrawal', message: `${acc.visibleUser} pidió retirar ${amount} créditos (${method || 'Mercado Pago'})`, accountName: acc.visibleUser });
   debitAccount(acc, amount, 'Retiro solicitado');
   saveDB(db);
   res.json({ ok: true, withdrawal: wd, message: 'Tu solicitud está en proceso, se te acreditará en breve.' });
