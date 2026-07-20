@@ -233,7 +233,7 @@ async function submitDeleteCampaign(e, id) {
 }
 
 async function renderStore(main) {
-  const { packages, methods, settings } = await Api.get('/store/packages');
+  const { packages, methods, banks, settings } = await Api.get('/store/packages');
   main.innerHTML = `
     <div class="page-head"><div><h1>Tienda</h1><div class="ps">Elegí un paquete o armá el tuyo — el precio ya incluye el impuesto</div></div></div>
     <div class="pkg-grid" id="pkgGrid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px; margin-bottom:28px;">
@@ -257,6 +257,9 @@ async function renderStore(main) {
             ${methods.map(m => `<option value="${m}">${m}</option>`).join('')}
           </select>
         </div>
+        <div class="field" id="bankCompanyWrap"><label class="req">¿Con qué compañía vas a transferir?</label>
+          <select id="p_bank">${(banks || []).map(b => `<option value="${b}">${b}</option>`).join('')}</select>
+        </div>
         <div class="field"><label>Alias / CBU para transferir</label><input value="${settings.paymentAlias}" disabled></div>
         <div class="notice hidden" id="bankTransferNote" style="margin-bottom:16px;">Una vez que hagas la transferencia, mandá el comprobante por Gmail a <b>${settings.paymentContactEmail}</b> para que se apruebe más rápido.</div>
         <div class="mini-help" style="margin-bottom:16px;">La solicitud vence en 1 hora si no se confirma el pago.</div>
@@ -268,7 +271,9 @@ async function renderStore(main) {
 }
 function onMethodChange() {
   const method = document.getElementById('p_method').value;
-  document.getElementById('bankTransferNote').classList.toggle('hidden', method !== 'Transferencia bancaria');
+  const isTransfer = method === 'Transferencia bancaria';
+  document.getElementById('bankTransferNote').classList.toggle('hidden', !isTransfer);
+  document.getElementById('bankCompanyWrap').classList.toggle('hidden', !isTransfer);
 }
 let selectedCredits = 100;
 async function selectPackage(credits) {
@@ -286,15 +291,34 @@ async function selectPackage(credits) {
 }
 async function submitPurchase(e) {
   e.preventDefault();
+  const method = document.getElementById('p_method').value;
   try {
-    const { note } = await Api.post('/store/purchases', {
+    const { note, purchase } = await Api.post('/store/purchases', {
       credits: selectedCredits,
-      method: document.getElementById('p_method').value,
+      method,
+      bankCompany: method === 'Transferencia bancaria' ? document.getElementById('p_bank').value : undefined,
       holderName: document.getElementById('p_holder').value.trim()
     });
-    toast(note || 'Pedido enviado.');
-    goTo('purchases');
+    if (method === 'Transferencia bancaria' && purchase) showPaymentQr(purchase);
+    else { toast(note || 'Pedido enviado.'); goTo('purchases'); }
   } catch (err) { toast(err.message, true); }
+}
+
+function showPaymentQr(purchase) {
+  const qrText = `Alias: ${purchase.alias}\nBanco: ${purchase.bankCompany || ''}\nMonto: $${fmtArs(purchase.ars)} ARS\nTitular: ${purchase.holderName}`;
+  const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrText)}`;
+  renderModal(`
+    <div class="modal-head"><h2>Pedido creado</h2><button class="modal-close" onclick="closeModal(); goTo('purchases');">×</button></div>
+    <div style="text-align:center;">
+      <img src="${qrImg}" alt="QR de pago" style="border-radius:12px; border:1px solid var(--border-soft); margin-bottom:14px;">
+      <div class="mini-help" style="margin-bottom:14px;">Este QR trae el alias y el monto para que los copies fácil desde tu app del banco — la mayoría no lo completa automático, así que revisá los datos antes de confirmar la transferencia.</div>
+    </div>
+    <div class="stat-grid" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="sl">Alias</div><div class="sv mono" style="font-size:15px;">${purchase.alias}</div></div>
+      <div class="stat-card"><div class="sl">Monto a transferir</div><div class="sv gold">$${fmtArs(purchase.ars)} ARS</div></div>
+    </div>
+    <div class="notice" style="margin-bottom:16px;">Mandá el comprobante por Gmail una vez que transfieras — la solicitud vence en 1 hora si no se confirma el pago.</div>
+    <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal(); goTo('purchases');">Entendido</button></div>`);
 }
 
 async function renderPurchases(main) {
@@ -309,7 +333,7 @@ async function renderPurchases(main) {
           <td class="mono">${p.credits}</td>
           <td class="mono">$${p.usd}</td>
           <td class="mono">$${fmtArs(p.ars)}</td>
-          <td>${p.method}</td>
+          <td>${p.method}${p.bankCompany ? ' — ' + p.bankCompany : ''}</td>
           <td>${p.holderName}</td>
           <td><span class="badge badge-${p.status === 'approved' ? 'approved' : p.status === 'rejected' ? 'rejected' : 'pending'}">${p.status}</span></td>
         </tr>`).join('')}</tbody>

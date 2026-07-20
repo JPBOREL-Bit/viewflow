@@ -8,6 +8,7 @@ const { purchaseQuote } = require('../pricing');
 
 const ONE_HOUR = 60 * 60 * 1000;
 const PAYMENT_METHODS = ['Transferencia bancaria', 'Tarjeta de débito'];
+const BANK_COMPANIES = ['BNA', 'Brubank', 'Naranja X', 'Mercado Pago', 'Ualá'];
 
 // Purga solicitudes vencidas (más de 1h sin aprobar). Se llama en cada
 // operación relevante para que "se borre sola" sin necesitar un cron aparte.
@@ -25,6 +26,7 @@ router.get('/packages', requireAuth(), (req, res) => {
   res.json({
     packages,
     methods: PAYMENT_METHODS,
+    banks: BANK_COMPANIES,
     settings: {
       minPurchase: 100,
       paymentAlias: db.settings.paymentAlias,
@@ -42,24 +44,28 @@ router.get('/quote', requireAuth(), (req, res) => {
 });
 
 router.post('/purchases', requireAuth('creator'), (req, res) => {
-  const { credits, method, holderName } = req.body || {};
+  const { credits, method, holderName, bankCompany } = req.body || {};
   const db = getDB();
   purgeExpired(db);
   const c = Number(credits);
   if (!Number.isInteger(c) || c < 100) return res.status(400).json({ error: 'El mínimo de compra es 100 créditos.' });
   if (!holderName) return res.status(400).json({ error: 'Falta el nombre del titular que va a pagar.' });
   const chosenMethod = PAYMENT_METHODS.includes(method) ? method : PAYMENT_METHODS[0];
+  if (chosenMethod === 'Transferencia bancaria' && !BANK_COMPANIES.includes(bankCompany)) {
+    return res.status(400).json({ error: 'Elegí con qué compañía vas a transferir.' });
+  }
 
   const quote = purchaseQuote(c, db.settings);
   const purchase = {
     id: uid('pur'), creatorId: req.account.id, credits: c,
     usd: quote.usd, ars: quote.ars, taxCredits: quote.taxCredits,
-    method: chosenMethod, holderName: String(holderName).trim(),
+    method: chosenMethod, bankCompany: chosenMethod === 'Transferencia bancaria' ? bankCompany : null,
+    holderName: String(holderName).trim(),
     alias: db.settings.paymentAlias, contactEmail: db.settings.paymentContactEmail,
     status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + ONE_HOUR
   };
   db.purchases.push(purchase);
-  addLog(db, { type: 'purchase', message: `${req.account.visibleUser} pidió comprar ${c} créditos (${chosenMethod})`, accountName: req.account.visibleUser });
+  addLog(db, { type: 'purchase', message: `${req.account.visibleUser} pidió comprar ${c} créditos (${chosenMethod}${purchase.bankCompany ? ' — ' + purchase.bankCompany : ''})`, accountName: req.account.visibleUser });
   saveDB(db);
   const note = chosenMethod === 'Transferencia bancaria'
     ? `Mandá el comprobante de la transferencia por Gmail a ${db.settings.paymentContactEmail} para que se apruebe más rápido.`

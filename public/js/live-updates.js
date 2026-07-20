@@ -1,13 +1,14 @@
 // public/js/live-updates.js
-// Sin cartel de "nueva actividad": la pantalla que el usuario tiene abierta
-// se actualiza sola cada 0.5s, en silencio, sin recargar ni interrumpir
-// formularios abiertos. Al cambiar de panel, ese panel ya pide datos frescos
-// apenas se abre (así se siente instantáneo al navegar).
+// El panel que el usuario tiene abierto NO se refresca solo — se carga una
+// vez al entrar y se queda quieto hasta que el usuario cambie de panel o
+// recargue la página (eso ya lo hace cada renderX() al navegar). Los otros
+// paneles (los que no está mirando) no se dibujan, así que "actualizarlos"
+// de fondo no cambiaría nada visible — solo dejamos un chequeo liviano para
+// el contador de mensajes de soporte, que sí es una notificación visible
+// aunque el usuario esté en otro panel.
 async function initLiveUpdates() {
   setInterval(() => {
-    const modalOpen = document.getElementById('modalRoot') && document.getElementById('modalRoot').children.length > 0;
-    if (!modalOpen && typeof window.__vfSilentRefresh === 'function') window.__vfSilentRefresh();
     if (typeof refreshSupportBadgeOnly === 'function') refreshSupportBadgeOnly();
-  }, 500);
+  }, 4000);
 }
 initLiveUpdates();
