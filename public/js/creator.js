@@ -91,7 +91,15 @@ async function renderDashboard(main) {
       <button class="btn btn-primary btn-sm" onclick="savePersonalGoal()">Guardar meta</button>
       ${goal.text ? `<div class="progress-bar" style="margin-top:14px;"><div class="progress-fill" style="width:${goal.progress || 0}%"></div></div>` : ''}
     </div>
-    <div class="ad-slot ad-slot-banner" data-ad-zone="creator-dashboard">Espacio publicitario</div>`;
+    <div class="ad-slot ad-slot-banner" data-ad-zone="creator-dashboard">
+      <ins class="adsbygoogle"
+           style="display:block"
+           data-ad-client="ca-pub-8545340767144593"
+           data-ad-slot="6688850781"
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>`;
+  renderAdSense(main);
 }
 
 function barChart(items) {
@@ -117,6 +125,15 @@ function savePersonalGoal() {
   localStorage.setItem('vf_goal_' + ME.id, JSON.stringify({ text, progress }));
   toast('Meta guardada.');
   renderPage();
+}
+
+
+function renderAdSense(container) {
+  if (!window.adsbygoogle) window.adsbygoogle = [];
+  const slots = container.querySelectorAll('.adsbygoogle');
+  slots.forEach(() => {
+    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+  });
 }
 
 function buildTimePresetOptions() {
