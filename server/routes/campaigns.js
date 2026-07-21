@@ -5,6 +5,7 @@ const { getDB, saveDB, addLog } = require('../db');
 const { requireAuth, checkPassword } = require('../auth');
 const { uid } = require('../util');
 const { campaignCost, viewerRewardFor } = require('../pricing');
+const { reduceSecondsByPlan } = require('../subscriptions');
 
 function creditAccount(acc, amount, detail) {
   acc.credits = Math.round(((acc.credits || 0) + amount) * 100000) / 100000;
@@ -29,6 +30,15 @@ function extractYouTubeId(url) {
   return null;
 }
 
+const PLATFORMS = ['youtube', 'tiktok', 'instagram'];
+function urlMatchesPlatform(url, platform) {
+  const u = String(url).toLowerCase();
+  if (platform === 'youtube') return !!extractYouTubeId(url);
+  if (platform === 'tiktok') return u.includes('tiktok.com');
+  if (platform === 'instagram') return u.includes('instagram.com');
+  return false;
+}
+
 // ---- Cotización en vivo (para el formulario de crear campaña) ----
 router.get('/quote', requireAuth('creator'), (req, res) => {
   const s = parseInt(req.query.seconds, 10) || 0;
@@ -44,14 +54,18 @@ router.get('/quote', requireAuth('creator'), (req, res) => {
 
 // ---- Crear campaña (creador) ----
 router.post('/', requireAuth('creator'), (req, res) => {
-  const { title, url, seconds, views } = req.body || {};
+  const { title, url, seconds, views, platform } = req.body || {};
   const db = getDB();
   const settings = db.settings;
   const s = parseInt(seconds, 10);
   const v = parseInt(views, 10);
+  const plat = PLATFORMS.includes(platform) ? platform : 'youtube';
 
   if (!title || !url) return res.status(400).json({ error: 'Faltan título o URL.' });
-  if (!extractYouTubeId(url)) return res.status(400).json({ error: 'Solo se admiten links de YouTube (video o Shorts).' });
+  if (!urlMatchesPlatform(url, plat)) {
+    const nice = { youtube: 'YouTube (video o Shorts)', tiktok: 'TikTok', instagram: 'Instagram' }[plat];
+    return res.status(400).json({ error: `El link no parece ser de ${nice}. Elegí la plataforma correcta o revisá el link.` });
+  }
   if (!s || s < 30) return res.status(400).json({ error: 'El tiempo mínimo de una campaña es 30 segundos.' });
   if (!v || v < (settings.minCampaignViews || 10)) return res.status(400).json({ error: `El mínimo de viewers es ${settings.minCampaignViews || 10}.` });
 
@@ -62,13 +76,13 @@ router.post('/', requireAuth('creator'), (req, res) => {
   }
 
   const camp = {
-    id: uid('camp'), creatorId: acc.id, title: String(title).trim(), url: String(url).trim(),
+    id: uid('camp'), creatorId: acc.id, title: String(title).trim(), url: String(url).trim(), platform: plat,
     seconds: s, views: v, viewsDone: 0, credits: total, rewardPerView: perView, viewerPool,
     status: 'active', createdAt: Date.now()
   };
   db.campaigns.push(camp);
   debitAccount(acc, total, 'Campaña creada: ' + camp.title);
-  addLog(db, { type: 'campaign', message: `${acc.visibleUser} creó la campaña "${camp.title}" (${v} viewers, ${s}s, ${total} créditos)`, accountName: acc.visibleUser });
+  addLog(db, { type: 'campaign', message: `${acc.visibleUser} creó la campaña "${camp.title}" en ${plat} (${v} viewers, ${s}s, ${total} créditos)`, accountName: acc.visibleUser });
   saveDB(db);
   res.json({ ok: true, campaign: camp });
 });
@@ -129,14 +143,17 @@ router.post('/:id/participate/start', requireAuth('viewer'), (req, res) => {
   const strikes = db.participations.filter(p => p.campaignId === camp.id && p.viewerId === req.account.id && ['abandoned', 'expired'].includes(p.status)).length;
   if (strikes >= 3) return res.status(400).json({ error: 'Alcanzaste el máximo de salidas permitidas en esta campaña.' });
 
+  const acc = db.accounts.find(a => a.id === req.account.id);
+  const planReducedSeconds = reduceSecondsByPlan(camp.seconds, acc.subPlan || 'free');
   const part = {
     id: uid('part'), campaignId: camp.id, viewerId: req.account.id,
     status: 'active', startedAt: Date.now(), deadline: Date.now() + 60 * 60 * 1000,
-    seconds: camp.seconds, effectiveSeconds: camp.seconds, videoDuration: null, reward: camp.rewardPerView
+    seconds: camp.seconds, effectiveSeconds: planReducedSeconds, videoDuration: null, reward: camp.rewardPerView,
+    platform: camp.platform || 'youtube'
   };
   db.participations.push(part);
   saveDB(db);
-  res.json({ ok: true, participation: part, videoId: extractYouTubeId(camp.url) });
+  res.json({ ok: true, participation: part, videoId: camp.platform === 'tiktok' || camp.platform === 'instagram' ? null : extractYouTubeId(camp.url) });
 });
 
 // ---- Participar: informar la duración real del video (si es más corto que
@@ -150,7 +167,7 @@ router.post('/:id/participate/duration', requireAuth('viewer'), (req, res) => {
   const d = Math.floor(Number(duration));
   if (d > 0) {
     part.videoDuration = d;
-    part.effectiveSeconds = Math.min(part.seconds, d);
+    part.effectiveSeconds = Math.min(part.effectiveSeconds, d);
     saveDB(db);
   }
   res.json({ ok: true, effectiveSeconds: part.effectiveSeconds });

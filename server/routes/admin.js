@@ -454,4 +454,65 @@ router.put('/donations/:id/reject', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Suscripciones: estadísticas + gestión ----
+router.get('/subscriptions', (req, res) => {
+  const db = getDB();
+  const { PLAN_ORDER, getPlan } = require('../subscriptions');
+  const viewers = db.accounts.filter(a => a.role === 'viewer');
+  const counts = {};
+  PLAN_ORDER.forEach(p => { counts[p] = viewers.filter(v => (v.subPlan || 'free') === p).length; });
+
+  const now = Date.now();
+  const thisMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const approvedThisMonth = db.subscriptionPurchases.filter(p => p.status === 'approved' && p.approvedAt >= thisMonthStart);
+  const monthlyRevenueUsd = approvedThisMonth.reduce((sum, p) => sum + p.priceUsd, 0);
+  const monthlyRevenueArs = approvedThisMonth.reduce((sum, p) => sum + p.priceArs, 0);
+
+  const active = viewers.filter(v => (v.subPlan || 'free') !== 'free' && v.subStatus === 'active').length;
+  const cancelledCount = db.subscriptionPurchases.filter(p => p.status === 'approved').length
+    ? viewers.filter(v => v.subStatus === 'cancelled').length : 0;
+  const pending = db.subscriptionPurchases.filter(p => p.status === 'pending').sort((a, b) => b.createdAt - a.createdAt)
+    .map(p => ({ ...p, viewerName: (db.accounts.find(a => a.id === p.viewerId) || {}).visibleUser || '—' }));
+
+  const freeCount = counts.free || 0;
+  const premiumCount = viewers.length - freeCount;
+  const conversionPct = viewers.length ? Math.round((premiumCount / viewers.length) * 1000) / 10 : 0;
+
+  res.json({
+    counts, monthlyRevenueUsd, monthlyRevenueArs, active, cancelled: cancelledCount,
+    totalViewers: viewers.length, premiumCount, conversionPct, pending
+  });
+});
+
+router.put('/subscriptions/:id/approve', (req, res) => {
+  const db = getDB();
+  const purchase = db.subscriptionPurchases.find(p => p.id === req.params.id && p.status === 'pending');
+  if (!purchase) return res.status(404).json({ error: 'Solicitud no encontrada o ya procesada.' });
+  const acc = db.accounts.find(a => a.id === purchase.viewerId);
+  if (!acc) return res.status(404).json({ error: 'Cuenta no encontrada.' });
+
+  purchase.status = 'approved';
+  purchase.approvedAt = Date.now();
+  acc.subPlan = purchase.plan;
+  acc.subStatus = 'active';
+  acc.subStartedAt = Date.now();
+  acc.subRenewsAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
+  const { getPlan } = require('../subscriptions');
+  addLog(db, { type: 'subscription', message: `Admin aprobó el pago de ${acc.visibleUser} — pasa al plan ${getPlan(purchase.plan).label}`, accountName: acc.visibleUser });
+  saveDB(db);
+  res.json({ ok: true });
+});
+
+router.put('/subscriptions/:id/reject', (req, res) => {
+  const db = getDB();
+  const purchase = db.subscriptionPurchases.find(p => p.id === req.params.id && p.status === 'pending');
+  if (!purchase) return res.status(404).json({ error: 'Solicitud no encontrada o ya procesada.' });
+  purchase.status = 'rejected';
+  const acc = db.accounts.find(a => a.id === purchase.viewerId);
+  if (acc && acc.subStatus === 'pending_payment') acc.subStatus = (acc.subPlan && acc.subPlan !== 'free') ? 'active' : 'active';
+  addLog(db, { type: 'subscription', message: `Admin rechazó el pago de suscripción de ${acc ? acc.visibleUser : purchase.viewerId}`, accountName: acc ? acc.visibleUser : null });
+  saveDB(db);
+  res.json({ ok: true });
+});
+
 module.exports = router;

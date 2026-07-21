@@ -5,6 +5,7 @@ const { getDB, saveDB, addLog } = require('../db');
 const { requireAuth } = require('../auth');
 const { uid } = require('../util');
 const { withdrawQuote } = require('../pricing');
+const { withdrawTaxForPlan, getPlan } = require('../subscriptions');
 
 const BANK_COMPANIES = ['BNA', 'Brubank', 'Naranja X', 'Mercado Pago', 'Ualá'];
 const MISMATCH_PENALTY_PCT = 5; // si el alias/CBU no coincide con el titular, se cobra este % al devolver
@@ -24,8 +25,11 @@ router.get('/banks', requireAuth('viewer'), (req, res) => {
 
 router.get('/quote', requireAuth('viewer'), (req, res) => {
   const db = getDB();
+  const acc = db.accounts.find(a => a.id === req.account.id);
   const credits = parseFloat(String(req.query.credits || '0').replace(',', '.'));
-  res.json(withdrawQuote(credits || 0, db.settings));
+  const planTaxPct = withdrawTaxForPlan(acc.subPlan || 'free');
+  const settingsWithPlanTax = { ...db.settings, withdrawTaxPct: planTaxPct };
+  res.json({ ...withdrawQuote(credits || 0, settingsWithPlanTax), planTaxPct, planLabel: getPlan(acc.subPlan || 'free').label });
 });
 
 router.post('/', requireAuth('viewer'), (req, res) => {
@@ -40,7 +44,7 @@ router.post('/', requireAuth('viewer'), (req, res) => {
   if (!BANK_COMPANIES.includes(bankCompany)) return res.status(400).json({ error: 'Elegí una compañía de pago válida.' });
   if (!alias || !holderName) return res.status(400).json({ error: 'Faltan datos de la cuenta para pagarte.' });
 
-  const quote = withdrawQuote(amount, db.settings);
+  const quote = withdrawQuote(amount, { ...db.settings, withdrawTaxPct: withdrawTaxForPlan(acc.subPlan || 'free') });
   const wd = {
     id: uid('wd'), viewerId: acc.id, credits: amount, netCredits: quote.netCredits,
     usd: quote.usd, ars: quote.ars, bankCompany,
@@ -49,7 +53,7 @@ router.post('/', requireAuth('viewer'), (req, res) => {
     status: 'pending', createdAt: Date.now()
   };
   db.withdrawals.push(wd);
-  addLog(db, { type: 'withdrawal', message: `${acc.visibleUser} pidió retirar ${amount} créditos (${method || 'Mercado Pago'})`, accountName: acc.visibleUser });
+  addLog(db, { type: 'withdrawal', message: `${acc.visibleUser} pidió retirar ${amount} créditos (${bankCompany})`, accountName: acc.visibleUser });
   debitAccount(acc, amount, 'Retiro solicitado');
   saveDB(db);
   res.json({ ok: true, withdrawal: wd, message: 'Tu solicitud está en proceso, se te acreditará en breve.' });

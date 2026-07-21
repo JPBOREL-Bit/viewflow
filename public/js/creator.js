@@ -140,7 +140,14 @@ function renderCreate(main) {
     <div class="section-card" style="max-width:640px;">
       <form onsubmit="submitCampaign(event)">
         <div class="field"><label class="req">Título del video</label><input id="cp_title" required></div>
-        <div class="field"><label class="req">URL de YouTube (video o Shorts)</label><input id="cp_url" required placeholder="https://youtube.com/watch?v=..."></div>
+        <div class="field"><label class="req">Plataforma</label>
+          <select id="cp_platform" onchange="onPlatformChange()">
+            <option value="youtube">YouTube</option>
+            <option value="tiktok">TikTok</option>
+            <option value="instagram">Instagram</option>
+          </select>
+        </div>
+        <div class="field"><label class="req" id="cp_url_label">URL de YouTube (video o Shorts)</label><input id="cp_url" required placeholder="https://youtube.com/watch?v=..."></div>
         <div class="grid-2">
           <div class="field"><label class="req">Cantidad de viewers</label><input id="cp_views" type="number" min="10" value="50" oninput="updateCost()"></div>
           <div class="field"><label class="req">Tiempo solicitado</label><select id="cp_seconds" onchange="updateCost()">${buildTimePresetOptions()}</select></div>
@@ -159,6 +166,16 @@ function renderCreate(main) {
   updateCost();
 }
 
+function onPlatformChange() {
+  const plat = document.getElementById('cp_platform').value;
+  const cfg = {
+    youtube: { label: 'URL de YouTube (video o Shorts)', placeholder: 'https://youtube.com/watch?v=...' },
+    tiktok: { label: 'URL de TikTok', placeholder: 'https://www.tiktok.com/@usuario/video/...' },
+    instagram: { label: 'URL de Instagram (Reel o post)', placeholder: 'https://www.instagram.com/reel/...' }
+  }[plat];
+  document.getElementById('cp_url_label').textContent = cfg.label;
+  document.getElementById('cp_url').placeholder = cfg.placeholder;
+}
 function updateCost() {
   const seconds = parseInt(document.getElementById('cp_seconds').value || 0);
   const views = parseInt(document.getElementById('cp_views').value || 0);
@@ -185,6 +202,7 @@ async function submitCampaign(e) {
     await Api.post('/campaigns', {
       title: document.getElementById('cp_title').value.trim(),
       url: document.getElementById('cp_url').value.trim(),
+      platform: document.getElementById('cp_platform').value,
       seconds: document.getElementById('cp_seconds').value,
       views: document.getElementById('cp_views').value
     });
@@ -200,9 +218,9 @@ async function renderMine(main) {
   main.innerHTML = `
     <div class="page-head"><div><h1>Mis campañas</h1><div class="ps">Seguimiento en tiempo real</div></div></div>
     <div class="section-card table-wrap">
-      <table><thead><tr><th>Título</th><th>Vistas</th><th>Tiempo</th><th>Costo</th><th>Estado</th><th></th></tr></thead>
+      <table><thead><tr><th>Título</th><th>Plataforma</th><th>Vistas</th><th>Tiempo</th><th>Costo</th><th>Estado</th><th></th></tr></thead>
       <tbody>${active.map(c => `
-        <tr><td>${c.title}</td><td>${c.viewsDone} / ${c.views}</td><td>${c.seconds}s</td>
+        <tr><td>${c.title}</td><td>${{youtube:'YouTube',tiktok:'TikTok',instagram:'Instagram'}[c.platform] || 'YouTube'}</td><td>${c.viewsDone} / ${c.views}</td><td>${c.seconds}s</td>
         <td class="mono">${fmtCr(c.credits)} cr</td><td><span class="badge badge-active">Activa</span></td>
         <td><button class="btn btn-sm btn-danger" onclick="confirmDeleteCampaign('${c.id}')">Eliminar</button></td></tr>`).join('')}
       </tbody></table>

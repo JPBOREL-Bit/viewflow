@@ -54,6 +54,7 @@ app.use('/api/store', storeRoutes);
 app.use('/api/withdrawals', withdrawalRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/donations', donationRoutes);
+app.use('/api/subscriptions', require('./routes/subscriptions').router);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/admin', adminRoutes);
 

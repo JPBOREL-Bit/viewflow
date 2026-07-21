@@ -7,6 +7,7 @@ let participationTimer = null;
 const NAV = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'campaigns', label: 'Campañas disponibles' },
+  { id: 'subscription', label: 'Suscripción' },
   { id: 'donate', label: 'Donar a viewers' },
   { id: 'withdraw', label: 'Retirar' },
   { id: 'history', label: 'Actividad' },
@@ -44,8 +45,9 @@ async function renderPage(silent) {
   try {
     if (currentPage === 'dashboard') await renderDashboard(main);
     else if (currentPage === 'campaigns') { await renderCampaigns(main); if (!silent) campaignsPollInterval = setInterval(() => renderCampaigns(main), 6000); }
+    else if (currentPage === 'subscription') await renderSubscription(main);
     else if (currentPage === 'donate') await renderDonate(main);
-    else if (currentPage === 'withdraw') renderWithdraw(main);
+    else if (currentPage === 'withdraw') await renderWithdraw(main);
     else if (currentPage === 'history') await renderHistory(main);
     else if (currentPage === 'profile') renderProfile(main);
     else if (currentPage === 'devices') await renderDevices(main);
@@ -53,18 +55,28 @@ async function renderPage(silent) {
 }
 
 async function renderDashboard(main) {
-  const [{ campaigns }, { participations }, { withdrawals }, { donations }] = await Promise.all([
+  const [{ campaigns }, { participations }, { withdrawals }, { donations }, sub] = await Promise.all([
     Api.get('/campaigns/active'),
     Api.get('/campaigns/participations/mine'),
     Api.get('/withdrawals/mine'),
-    Api.get('/donations/mine').catch(() => ({ donations: [] }))
+    Api.get('/donations/mine').catch(() => ({ donations: [] })),
+    Api.get('/subscriptions/mine').catch(() => null)
   ]);
   const completed = participations.filter(p => p.status === 'completed');
   const creditsEarned = completed.reduce((s, p) => s + (p.reward || 0), 0);
   const creditsWithdrawn = withdrawals.filter(w => w.status === 'paid').reduce((s, w) => s + w.credits, 0);
   const creditsDonated = (donations.donations || []).reduce((s, d) => s + (d.credits || 0), 0);
+  const planLabel = sub ? sub.planDetail.label : 'Free';
   main.innerHTML = `
     <div class="page-head"><div><h1>Dashboard</h1><div class="ps">Tu actividad y tus créditos, de un vistazo</div></div></div>
+    ${sub ? `<div class="section-card" style="margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+      <div>
+        <div class="mini-help" style="margin-bottom:4px;">Tu plan actual</div>
+        <div style="font-size:20px; font-weight:700;">${planLabel} ${sub.planDetail.badge ? `<span class="badge badge-approved">${sub.planDetail.badge}</span>` : ''}</div>
+        <div class="mini-help" style="margin-top:4px;">Impuesto de retiro: ${sub.planDetail.withdrawTaxPct}% · Tiempo reducido: ${sub.planDetail.timeReductionPct}%</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="goTo('subscription')">Mejorar plan</button>
+    </div>` : ''}
     <div class="stat-grid">
       <div class="stat-card"><div class="sl">Créditos disponibles</div><div class="sv gold">${fmtCr(ME.credits || 0)} cr</div></div>
       <div class="stat-card"><div class="sl">Campañas disponibles</div><div class="sv teal">${campaigns.length}</div></div>
@@ -81,14 +93,21 @@ async function renderDashboard(main) {
      data-full-width-responsive="true"></ins><script>(adsbygoogle = window.adsbygoogle || []).push({});</script></div>`;
 }
 
+const PLATFORM_LABELS = { youtube: 'YouTube', tiktok: 'TikTok', instagram: 'Instagram' };
+function planTimeReductionPct(plan) { return { free: 0, plus: 10, pro: 25, elite: 50 }[plan] || 0; }
+function reducedSecondsPreview(seconds) {
+  const pct = planTimeReductionPct((ME && ME.subPlan) || 'free');
+  return Math.max(5, Math.round(seconds * (1 - pct / 100)));
+}
+
 async function renderCampaigns(main) {
   const { campaigns } = await Api.get('/campaigns/active');
   main.innerHTML = `
     <div class="page-head"><div><h1>Campañas disponibles</h1><div class="ps">Mirá videos y ganá créditos por tu tiempo</div></div></div>
     ${campaigns.length === 0 ? '<div class="empty-state">No hay campañas disponibles en este momento.</div>' : campaigns.map(c => `
       <div class="section-card" style="margin-bottom:14px;">
-        <h4>${c.title}</h4>
-        <div class="mini-help">Por ${c.creatorName} · Quedate viendo: <b>${formatHMS(c.seconds)}</b> · Vas a ganar: <b style="color:var(--gold)">${fmtCr(c.rewardPerView)} créditos</b></div>
+        <h4>${c.title} <span class="badge" style="text-transform:uppercase; font-size:10px;">${PLATFORM_LABELS[c.platform] || 'YouTube'}</span></h4>
+        <div class="mini-help">Por ${c.creatorName} · Quedate viendo: <b>${formatHMS(reducedSecondsPreview(c.seconds))}</b>${reducedSecondsPreview(c.seconds) < c.seconds ? ` <span style="color:var(--gold);">(reducido por tu plan)</span>` : ''} · Vas a ganar: <b style="color:var(--gold)">${fmtCr(c.rewardPerView)} créditos</b></div>
         <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100, (c.viewsDone / c.views) * 100)}%"></div></div>
         <div style="margin-top:14px;"><button class="btn btn-primary btn-sm" onclick="openParticipate('${c.id}')">Participar</button></div>
       </div>`).join('')}`;
@@ -117,40 +136,61 @@ async function openParticipate(campId) {
   try { start = await Api.post(`/campaigns/${campId}/participate/start`); }
   catch (err) { toast(err.message, true); return; }
 
-  activeParticipation = { id: start.participation.id, campaignId: campId, seconds: start.participation.seconds, reward: start.participation.reward, videoId: start.videoId };
-  let total = activeParticipation.seconds;
+  const platform = start.participation.platform || 'youtube';
+  activeParticipation = { id: start.participation.id, campaignId: campId, seconds: start.participation.seconds, reward: start.participation.reward, videoId: start.videoId, platform };
+  let total = start.participation.effectiveSeconds; // ya viene reducido según el plan del viewer
   let remaining = total;
+  const reducedNote = total < activeParticipation.seconds ? ` <span style="color:var(--gold);">(reducido por tu plan)</span>` : '';
 
-  renderModal(`
-    <div class="modal-head"><h2>Mirando video</h2><button class="modal-close" onclick="tryCloseParticipation()">×</button></div>
-    <div class="player-frame"><div id="pt_yt_player" style="width:100%; height:100%;"></div><div class="player-lock-overlay"></div></div>
-    <div class="timer-ring-text mono" id="pt_remaining">${formatHMS(remaining)}</div>
-    <div class="timer-label" id="pt_label">Quedate viendo sin salir de esta pestaña para ganar <b style="color:var(--gold)">${fmtCr(activeParticipation.reward)} créditos</b></div>
-    <div class="progress-bar"><div class="progress-fill" id="pt_progress" style="width:0%"></div></div>
-    <div class="mini-help" id="pt_tabwarn" style="text-align:center; color:var(--red);"></div>
-    <div class="modal-foot"><button class="btn btn-danger" id="pt_stop_btn" onclick="stopParticipation()">Dejar de participar</button></div>
-  `, 'modal-video');
+  if (platform === 'youtube') {
+    renderModal(`
+      <div class="modal-head"><h2>Mirando video</h2><button class="modal-close" onclick="tryCloseParticipation()">×</button></div>
+      <div class="player-frame"><div id="pt_yt_player" style="width:100%; height:100%;"></div><div class="player-lock-overlay"></div></div>
+      <div class="timer-ring-text mono" id="pt_remaining">${formatHMS(remaining)}</div>
+      <div class="timer-label" id="pt_label">Quedate viendo sin salir de esta pestaña para ganar <b style="color:var(--gold)">${fmtCr(activeParticipation.reward)} créditos</b>${reducedNote}</div>
+      <div class="progress-bar"><div class="progress-fill" id="pt_progress" style="width:0%"></div></div>
+      <div class="mini-help" id="pt_tabwarn" style="text-align:center; color:var(--red);"></div>
+      <div class="modal-foot"><button class="btn btn-danger" id="pt_stop_btn" onclick="stopParticipation()">Dejar de participar</button></div>
+    `, 'modal-video');
 
-  await loadYouTubeApi();
-  ytPlayer = new YT.Player('pt_yt_player', {
-    videoId: activeParticipation.videoId,
-    playerVars: { autoplay: 1, rel: 0, modestbranding: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
-    events: {
-      onReady: async (e) => {
-        e.target.playVideo();
-        const dur = Math.floor(e.target.getDuration() || 0);
-        if (dur > 0 && dur < total) {
-          try {
-            const res = await Api.post(`/campaigns/${campId}/participate/duration`, { participationId: activeParticipation.id, duration: dur });
-            total = res.effectiveSeconds;
-            remaining = Math.min(remaining, total);
-            const labelEl = document.getElementById('pt_label');
-            if (labelEl) labelEl.innerHTML = `El video dura menos de lo pedido — mirándolo completo ya ganás <b style="color:var(--gold)">${fmtCr(activeParticipation.reward)} créditos</b> (el creador paga el tiempo completo igual).`;
-          } catch (err) { /* si falla, seguimos con el tiempo original */ }
+    await loadYouTubeApi();
+    ytPlayer = new YT.Player('pt_yt_player', {
+      videoId: activeParticipation.videoId,
+      playerVars: { autoplay: 1, rel: 0, modestbranding: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
+      events: {
+        onReady: async (e) => {
+          e.target.playVideo();
+          const dur = Math.floor(e.target.getDuration() || 0);
+          if (dur > 0 && dur < total) {
+            try {
+              const res = await Api.post(`/campaigns/${campId}/participate/duration`, { participationId: activeParticipation.id, duration: dur });
+              total = res.effectiveSeconds;
+              remaining = Math.min(remaining, total);
+              const labelEl = document.getElementById('pt_label');
+              if (labelEl) labelEl.innerHTML = `El video dura menos de lo pedido — mirándolo completo ya ganás <b style="color:var(--gold)">${fmtCr(activeParticipation.reward)} créditos</b> (el creador paga el tiempo completo igual).`;
+            } catch (err) { /* si falla, seguimos con el tiempo original */ }
+          }
         }
       }
-    }
-  });
+    });
+  } else {
+    // TikTok / Instagram: no hay forma pública de verificar la duración real
+    // ni de embeber el reproductor de forma confiable, así que usamos el
+    // mismo sistema de temporizador (pestaña activa) que YouTube usaba antes
+    // de tener detección de duración real.
+    const camp = (await Api.get('/campaigns/active')).campaigns.find(c => c.id === campId);
+    const url = camp ? camp.url : '#';
+    renderModal(`
+      <div class="modal-head"><h2>Mirando en ${PLATFORM_LABELS[platform] || platform}</h2><button class="modal-close" onclick="tryCloseParticipation()">×</button></div>
+      <div class="notice" style="margin-bottom:16px;">Abrí el video en una pestaña nueva y quedate mirándolo. Esta pestaña de ViewFlow tiene que seguir abierta y activa para que cuente el tiempo.</div>
+      <div style="text-align:center; margin-bottom:16px;"><a href="${url}" target="_blank" rel="noopener" class="btn btn-primary">Abrir video en ${PLATFORM_LABELS[platform] || platform}</a></div>
+      <div class="timer-ring-text mono" id="pt_remaining">${formatHMS(remaining)}</div>
+      <div class="timer-label" id="pt_label">Quedate en esta pestaña para ganar <b style="color:var(--gold)">${fmtCr(activeParticipation.reward)} créditos</b>${reducedNote}</div>
+      <div class="progress-bar"><div class="progress-fill" id="pt_progress" style="width:0%"></div></div>
+      <div class="mini-help" id="pt_tabwarn" style="text-align:center; color:var(--red);"></div>
+      <div class="modal-foot"><button class="btn btn-danger" id="pt_stop_btn" onclick="stopParticipation()">Dejar de participar</button></div>
+    `, 'modal-video');
+  }
 
   document.removeEventListener('visibilitychange', onVisibilityChange);
   document.addEventListener('visibilitychange', onVisibilityChange);
@@ -223,12 +263,102 @@ async function abandonParticipation() {
   renderPage();
 }
 
-function renderWithdraw(main) {
+async function renderSubscription(main) {
+  const [{ plans, banks }, sub] = await Promise.all([Api.get('/subscriptions/plans'), Api.get('/subscriptions/mine')]);
+  const currentIdx = plans.findIndex(p => p.key === sub.plan);
+  main.innerHTML = `
+    <div class="page-head"><div><h1>Suscripción</h1><div class="ps">Mejorá tu plan y reducí el tiempo de las campañas y el impuesto de retiro</div></div></div>
+    <div class="notice" style="margin-bottom:16px;">Las suscripciones ViewFlow Premium ofrecen beneficios dentro de la plataforma, pero no garantizan una cantidad determinada de campañas, visualizaciones o ingresos. La disponibilidad de campañas depende exclusivamente de la actividad de los creadores dentro de ViewFlow.</div>
+    <div class="mini-help" style="margin-bottom:24px;">El usuario acepta que pueden existir períodos con pocas o ninguna campaña disponible.</div>
+
+    ${sub.pendingPurchase ? `<div class="notice" style="margin-bottom:20px;">Tenés una solicitud pendiente de aprobación para el plan <b>${plans.find(p => p.key === sub.pendingPurchase.plan)?.label}</b>. Mandaste el comprobante por Gmail a <b>${sub.pendingPurchase.contactEmail}</b> — te avisamos cuando se apruebe.</div>` : ''}
+
+    <div class="section-card" style="margin-bottom:24px;">
+      <h3 style="margin-bottom:6px;">Tu plan actual: ${sub.planDetail.label}${sub.planDetail.badge ? ` <span class="badge badge-approved">${sub.planDetail.badge}</span>` : ''}</h3>
+      <div class="mini-help">Impuesto de retiro: ${sub.planDetail.withdrawTaxPct}% · Reducción de tiempo en campañas: ${sub.planDetail.timeReductionPct}%</div>
+      ${sub.plan !== 'free' ? `<div style="margin-top:12px;"><button class="btn btn-danger btn-sm" onclick="cancelSubscription()">Cancelar suscripción</button></div>` : ''}
+    </div>
+
+    <div class="pkg-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:16px;">
+      ${plans.map((p, i) => `
+        <div class="section-card" style="text-align:center; ${p.key === sub.plan ? 'border-color:var(--gold);' : ''}">
+          <h3 style="margin-bottom:2px;">${p.label}</h3>
+          <div class="mono" style="font-size:22px; font-weight:700; color:var(--gold); margin:8px 0;">${p.priceUsd === 0 ? 'Gratis' : `$${p.priceUsd.toFixed(2)}/mes`}</div>
+          ${p.priceUsd > 0 ? `<div class="mini-help" style="margin-bottom:12px;">$${fmtArsSub(p.priceArs)} ARS/mes</div>` : '<div style="height:20px;"></div>'}
+          <ul style="text-align:left; font-size:13px; color:var(--text-dim); line-height:1.9; margin-bottom:16px; padding-left:18px;">
+            <li>${p.timeReductionPct}% menos tiempo por campaña</li>
+            <li>Impuesto de retiro: ${p.withdrawTaxPct}%</li>
+            <li>Prioridad: ${['Normal', 'Media', 'Alta', 'Máxima'][i]}</li>
+            ${p.badge ? `<li>Badge ${p.badge} en tu perfil</li>` : '<li>Sin badge</li>'}
+          </ul>
+          ${p.key === sub.plan
+            ? `<button class="btn btn-ghost btn-sm" disabled>Plan actual</button>`
+            : p.key === 'free'
+              ? `<button class="btn btn-ghost btn-sm" onclick="cancelSubscription()">Volver a Free</button>`
+              : sub.pendingPurchase
+                ? `<button class="btn btn-ghost btn-sm" disabled>Tenés un pago pendiente</button>`
+                : `<button class="btn btn-primary btn-sm" onclick="openSubscribeModal('${p.key}')">Elegir ${p.label}</button>`}
+        </div>`).join('')}
+    </div>`;
+}
+function fmtArsSub(n) { return Math.round(n).toLocaleString('es-AR'); }
+
+async function openSubscribeModal(planKey) {
+  const { plans, banks } = await Api.get('/subscriptions/plans');
+  const plan = plans.find(p => p.key === planKey);
+  renderModal(`
+    <div class="modal-head"><h2>Suscribirte a ${plan.label}</h2><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="stat-grid" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="sl">Precio mensual</div><div class="sv gold">$${plan.priceUsd.toFixed(2)} USD</div></div>
+      <div class="stat-card"><div class="sl">En pesos</div><div class="sv">$${fmtArsSub(plan.priceArs)} ARS</div></div>
+    </div>
+    <form onsubmit="submitSubscribe(event, '${planKey}')">
+      <div class="field"><label class="req">Nombre del titular que va a pagar</label><input id="sub_holder" required placeholder="Nombre y apellido"></div>
+      <div class="field"><label class="req">¿Con qué compañía vas a transferir?</label>
+        <select id="sub_bank">${banks.map(b => `<option value="${b}">${b}</option>`).join('')}</select>
+      </div>
+      <div class="notice" style="margin-bottom:16px;">Pago mensual manual por ahora: transferís, mandás el comprobante por Gmail (desde el mismo Gmail de tu cuenta), y el admin lo aprueba. La solicitud vence en 1 hora si no se confirma.</div>
+      <div class="modal-foot"><button class="btn btn-primary" type="submit">Enviar pedido de suscripción</button></div>
+    </form>`);
+}
+async function submitSubscribe(e, planKey) {
+  e.preventDefault();
+  try {
+    const { purchase } = await Api.post('/subscriptions/subscribe', {
+      plan: planKey, bankCompany: document.getElementById('sub_bank').value, holderName: document.getElementById('sub_holder').value.trim()
+    });
+    const qrText = `Alias: ${purchase.alias}\nBanco: ${purchase.bankCompany}\nMonto: $${fmtArsSub(purchase.priceArs)} ARS (suscripción mensual)\nTitular: ${purchase.holderName}`;
+    const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrText)}`;
+    renderModal(`
+      <div class="modal-head"><h2>Solicitud enviada</h2><button class="modal-close" onclick="closeModal(); goTo('subscription');">×</button></div>
+      <div style="text-align:center;"><img src="${qrImg}" alt="QR de pago" style="border-radius:12px; border:1px solid var(--border-soft); margin-bottom:14px;"></div>
+      <div class="stat-grid" style="margin-bottom:16px;">
+        <div class="stat-card"><div class="sl">Alias</div><div class="sv mono" style="font-size:15px;">${purchase.alias}</div></div>
+        <div class="stat-card"><div class="sl">Monto a transferir</div><div class="sv gold">$${fmtArsSub(purchase.priceArs)} ARS</div></div>
+      </div>
+      <div class="notice" style="margin-bottom:16px;">Mandá el comprobante por Gmail a <b>${purchase.contactEmail}</b> — desde el mismo Gmail de tu cuenta.</div>
+      <div class="modal-foot"><button class="btn btn-primary" onclick="closeModal(); goTo('subscription');">Entendido</button></div>`);
+  } catch (err) { toast(err.message, true); }
+}
+async function cancelSubscription() {
+  if (!confirm('¿Seguro que querés cancelar tu suscripción? Volvés al plan Free al instante.')) return;
+  try { await Api.post('/subscriptions/cancel'); toast('Volviste al plan Free.'); goTo('subscription'); }
+  catch (err) { toast(err.message, true); }
+}
+
+async function renderWithdraw(main) {
+  const [{ banks, mismatchPenaltyPct }, sub] = await Promise.all([
+    Api.get('/withdrawals/banks'),
+    Api.get('/subscriptions/mine').catch(() => null)
+  ]);
+  const taxPct = sub ? sub.planDetail.withdrawTaxPct : 15;
   main.innerHTML = `
     <div class="page-head"><div><h1>Retirar</h1><div class="ps">Pasá tus créditos a dinero real</div></div></div>
     <div class="stat-grid">
       <div class="stat-card"><div class="sl">Créditos disponibles</div><div class="sv gold">${fmtCr(ME.credits || 0)}</div></div>
     </div>
+    <div class="notice" style="margin-bottom:16px; max-width:520px;">Tu plan actual (${sub ? sub.planDetail.label : 'Free'}) tiene un impuesto de retiro del <b>${taxPct}%</b>.</div>
+    <div class="mini-help" style="margin-bottom:16px; max-width:520px;">Los retiros son para mayores de 18 años. Si el alias/CBU no coincide con el nombre del titular, el pago puede quedar retenido para verificación.</div>
     <div class="section-card" style="max-width:520px;">
       <form onsubmit="submitWithdraw(event)">
         <div class="field">
@@ -239,9 +369,16 @@ function renderWithdraw(main) {
           </div>
         </div>
         <div class="mini-help" id="wd_preview" style="margin-bottom:14px;"></div>
-        <div class="field"><label class="req">Método de pago</label><select id="wd_method"><option>Mercado Pago</option><option>Transferencia</option></select></div>
+        <div class="field"><label class="req">¿Con qué compañía te vamos a pagar?</label>
+          <select id="wd_bank">${banks.map(b => `<option value="${b}">${b}</option>`).join('')}</select>
+        </div>
         <div class="field"><label class="req">Alias / CBU</label><input id="wd_alias" required></div>
-        <div class="field"><label class="req">Nombre y apellido del titular</label><input id="wd_holder" required></div>
+        <div class="field"><label class="req">Nombre y apellido del titular de esa cuenta</label><input id="wd_holder" required></div>
+        <div class="field" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="wd_match" style="width:auto;">
+          <label for="wd_match" style="margin:0;">El titular de la cuenta bancaria es el mismo que el de mi cuenta de ViewFlow</label>
+        </div>
+        <div class="mini-help" style="margin-bottom:14px;">Si no coincide, el pago se puede anular y devolverse con un ${mismatchPenaltyPct}% de penalidad.</div>
         <button class="btn btn-primary" type="submit">Generar retiro</button>
       </form>
     </div>`;
@@ -253,16 +390,17 @@ function withdrawAll() {
 async function updateWithdrawPreview() {
   const raw = document.getElementById('wd_credits').value.replace(',', '.');
   const q = await Api.get('/withdrawals/quote?credits=' + (raw || 0));
-  document.getElementById('wd_preview').textContent = `Vas a recibir: $${q.usd} USD / $${fmtArs(q.ars)} ARS después del impuesto.`;
+  document.getElementById('wd_preview').textContent = `Vas a recibir: $${q.usd} USD / $${fmtArs(q.ars)} ARS después del impuesto de tu plan (${q.planTaxPct}%).`;
 }
 async function submitWithdraw(e) {
   e.preventDefault();
   try {
     const { message } = await Api.post('/withdrawals', {
       credits: document.getElementById('wd_credits').value,
-      method: document.getElementById('wd_method').value,
+      bankCompany: document.getElementById('wd_bank').value,
       alias: document.getElementById('wd_alias').value,
-      holderName: document.getElementById('wd_holder').value
+      holderName: document.getElementById('wd_holder').value,
+      holderMatchesAccount: document.getElementById('wd_match').checked
     });
     ME = await requireSession('viewer');
     toast(message);

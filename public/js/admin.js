@@ -11,6 +11,7 @@ const NAV = [
   { id: 'purchases', label: 'Pagos pendientes' },
   { id: 'withdrawals', label: 'Retiros' },
   { id: 'donations', label: 'Donaciones' },
+  { id: 'subscriptions', label: 'Suscripciones' },
   { id: 'verify', label: 'Verificación' },
   { id: 'messages', label: 'Mensajes' },
   { id: 'taxes', label: 'Impuestos' },
@@ -67,7 +68,7 @@ async function renderPage(silent) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === currentPage));
   const main = document.getElementById('mainContent');
   if (!silent) main.innerHTML = '<div class="empty-state">Cargando...</div>';
-  const renderers = { overview: renderOverview, users: renderUsers, creators: renderCreatorsSection, viewers: renderViewersSection, campaigns: renderCampaigns, purchases: renderPurchases, withdrawals: renderWithdrawals, donations: renderDonations, verify: renderVerify, messages: renderMessages, taxes: renderTaxes, settings: renderSettings, devices: renderDevices, logs: renderLogs };
+  const renderers = { overview: renderOverview, users: renderUsers, creators: renderCreatorsSection, viewers: renderViewersSection, campaigns: renderCampaigns, purchases: renderPurchases, withdrawals: renderWithdrawals, donations: renderDonations, subscriptions: renderSubscriptions, verify: renderVerify, messages: renderMessages, taxes: renderTaxes, settings: renderSettings, devices: renderDevices, logs: renderLogs };
   try { await renderers[currentPage](main); } catch (e) { if (!silent) main.innerHTML = `<div class="empty-state">${e.message}</div>`; }
 }
 
@@ -331,6 +332,43 @@ function searchLogs() {
   const q = document.getElementById('logSearch').value;
   const type = document.getElementById('logType').value;
   renderLogs(document.getElementById('mainContent'), q, type);
+}
+
+async function renderSubscriptions(main) {
+  const d = await Api.get('/admin/subscriptions');
+  const planLabels = { free: 'Free', plus: 'Plus', pro: 'Pro', elite: 'Elite' };
+  main.innerHTML = `
+    <div class="page-head"><div><h1>Suscripciones</h1><div class="ps">Planes de viewers, ingresos y pagos pendientes</div></div></div>
+    <div class="stat-grid" style="margin-bottom:20px;">
+      ${Object.keys(planLabels).map(k => `<div class="stat-card"><div class="sl">${planLabels[k]}</div><div class="sv ${k === 'free' ? '' : 'gold'}">${d.counts[k] || 0}</div></div>`).join('')}
+    </div>
+    <div class="stat-grid" style="margin-bottom:24px;">
+      <div class="stat-card"><div class="sl">Ingresos este mes</div><div class="sv teal">$${d.monthlyRevenueUsd.toFixed(2)} USD</div></div>
+      <div class="stat-card"><div class="sl">Ingresos este mes (ARS)</div><div class="sv">$${fmtArs(d.monthlyRevenueArs)}</div></div>
+      <div class="stat-card"><div class="sl">Suscripciones activas</div><div class="sv">${d.active}</div></div>
+      <div class="stat-card"><div class="sl">Canceladas</div><div class="sv">${d.cancelled}</div></div>
+      <div class="stat-card"><div class="sl">Conversión Free → Premium</div><div class="sv gold">${d.conversionPct}%</div></div>
+      <div class="stat-card"><div class="sl">Total viewers</div><div class="sv">${d.totalViewers}</div></div>
+    </div>
+    <div class="section-card table-wrap">
+      <h3 style="margin-bottom:14px;">Pagos pendientes de aprobar</h3>
+      ${d.pending.length === 0 ? '<div class="empty-state">No hay pagos de suscripción pendientes.</div>' : `
+      <table><thead><tr><th>Viewer</th><th>Plan</th><th>Monto</th><th>Titular</th><th>Banco</th><th>Vence</th><th></th></tr></thead>
+      <tbody>${d.pending.map(p => `<tr>
+        <td>${p.viewerName}</td><td>${planLabels[p.plan]}</td><td class="mono">$${p.priceUsd} USD / $${fmtArs(p.priceArs)}</td>
+        <td>${p.holderName}</td><td>${p.bankCompany}</td><td>${new Date(p.expiresAt).toLocaleString()}</td>
+        <td><button class="btn btn-sm btn-teal" onclick="approveSubscription('${p.id}')">Aprobar</button>
+        <button class="btn btn-sm btn-danger" onclick="rejectSubscription('${p.id}')">Rechazar</button></td>
+      </tr>`).join('')}</tbody></table>`}
+    </div>`;
+}
+async function approveSubscription(id) {
+  try { await Api.put(`/admin/subscriptions/${id}/approve`); toast('Suscripción aprobada.'); renderSubscriptions(document.getElementById('mainContent')); }
+  catch (err) { toast(err.message, true); }
+}
+async function rejectSubscription(id) {
+  try { await Api.put(`/admin/subscriptions/${id}/reject`); toast('Pago rechazado.'); renderSubscriptions(document.getElementById('mainContent')); }
+  catch (err) { toast(err.message, true); }
 }
 
 async function renderDonations(main) {

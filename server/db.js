@@ -44,7 +44,8 @@ function defaultDB() {
     },
     sessions: [], // { id, accountId, device, ip, location, trusted, createdAt, lastActiveAt }
     loginAttempts: [], // { ip, ts } — intentos fallidos recientes, para el baneo automático
-    ipBans: [] // { ip, bannedUntil }
+    ipBans: [], // { ip, bannedUntil }
+    subscriptionPurchases: [] // { id, viewerId, plan, priceUsd, priceArs, holderName, bankCompany, alias, status, createdAt, expiresAt }
   };
 }
 
@@ -58,6 +59,15 @@ function migrate(db) {
   if (!Array.isArray(db.sessions)) db.sessions = [];
   if (!Array.isArray(db.loginAttempts)) db.loginAttempts = [];
   if (!Array.isArray(db.ipBans)) db.ipBans = [];
+  if (!Array.isArray(db.subscriptionPurchases)) db.subscriptionPurchases = [];
+  db.accounts.forEach(a => {
+    if (a.role === 'viewer') {
+      if (!a.subPlan) a.subPlan = 'free';
+      if (!a.subStatus) a.subStatus = 'active';
+      if (a.subStartedAt === undefined) a.subStartedAt = a.createdAt || Date.now();
+      if (a.subRenewsAt === undefined) a.subRenewsAt = null;
+    }
+  });
   (db.accounts || []).forEach(a => {
     if (!a.theme) a.theme = 'light';
     if (!Array.isArray(a.ledger)) a.ledger = [];
