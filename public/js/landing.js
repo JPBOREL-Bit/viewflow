@@ -88,19 +88,6 @@ function openRegister(role) {
   }
 }
 
-let __recaptchaSiteKey = null;
-function recaptchaWidgetHTML(id) {
-  if (!__recaptchaSiteKey) return '';
-  return `<div class="g-recaptcha" id="${id}" data-sitekey="${__recaptchaSiteKey}" style="margin-bottom:14px;"></div>`;
-}
-function getCaptchaToken(widgetId) {
-  if (!__recaptchaSiteKey || typeof grecaptcha === 'undefined') return null;
-  try {
-    const el = document.getElementById(widgetId);
-    const idx = el ? el.dataset.widgetId : undefined;
-    return grecaptcha.getResponse(idx);
-  } catch (e) { return null; }
-}
 function termsCheckboxHTML(id) {
   return `
     <div class="field" style="display:flex; align-items:flex-start; gap:8px;">
@@ -139,7 +126,6 @@ function openLogin() {
     <form onsubmit="submitLogin(event)">
       <div class="field"><label class="req">Gmail</label><input id="li_email" type="email" required></div>
       ${passwordFieldHTML('li_pass', 'Contraseña', true)}
-      ${recaptchaWidgetHTML('li_captcha')}
       <div class="modal-foot">
         <button class="btn btn-primary" type="submit">Ingresar</button>
         <button class="btn btn-ghost btn-sm" type="button" onclick="openForgotPassword()">Olvidé mi contraseña</button>

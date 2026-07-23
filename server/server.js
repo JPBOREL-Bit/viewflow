@@ -74,8 +74,7 @@ app.get('/api/public-settings', (req, res) => {
   const onlineViewers = approved.filter(a => a.role === 'viewer' && activeAccountIds.has(a.id)).length;
   res.json({
     siteTitle, siteTagline, siteDesc, maintenanceMode, maintenanceMessage,
-    stats: { totalCreators, totalViewers, onlineCreators, onlineViewers },
-    recaptchaSiteKey: process.env.RECAPTCHA_SITE_KEY || null
+    stats: { totalCreators, totalViewers, onlineCreators, onlineViewers }
   });
 });
 

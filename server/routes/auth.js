@@ -5,7 +5,6 @@ const { getDB, saveDB, addLog } = require('../db');
 const { hashPassword, checkPassword, setSessionCookie, clearSessionCookie, createSession, publicAccount, requireAuth } = require('../auth');
 const { uid, genVerifyCode } = require('../util');
 const { trySendVerificationEmail } = require('../mailer');
-const { verifyCaptcha } = require('../recaptcha');
 
 function findByEmail(db, email) {
   return db.accounts.find(a => a.email.toLowerCase() === String(email || '').toLowerCase());
@@ -32,8 +31,7 @@ function generateUniqueViewerName(db) {
 
 // ---- Registro ----
 router.post('/register', async (req, res) => {
-  const { role, name, visibleUser, email, phone, ytUser, password, acceptedTerms, ref, captchaToken } = req.body || {};
-  if (!(await verifyCaptcha(captchaToken))) return res.status(400).json({ error: 'Verificación de "no soy un robot" fallida. Probá de nuevo.' });
+  const { role, name, visibleUser, email, phone, ytUser, password, acceptedTerms, ref } = req.body || {};
   if (!['creator', 'viewer'].includes(role)) return res.status(400).json({ error: 'Rol inválido.' });
   if (!name || !email || !password) return res.status(400).json({ error: 'Faltan campos obligatorios.' });
   if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres.' });
@@ -138,8 +136,7 @@ const MAX_FAILED_ATTEMPTS = 5;
 const IP_BAN_MINUTES = 10;
 
 router.post('/login', async (req, res) => {
-  const { email, password, captchaToken } = req.body || {};
-  if (!(await verifyCaptcha(captchaToken))) return res.status(400).json({ error: 'Verificación de "no soy un robot" fallida. Probá de nuevo.' });
+  const { email, password } = req.body || {};
   const db = getDB();
   const ip = (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim();
   const now = Date.now();
